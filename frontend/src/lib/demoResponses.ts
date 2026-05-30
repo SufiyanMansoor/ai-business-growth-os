@@ -186,5 +186,10 @@ export function getDemoResponse(endpoint: string, method: string, body: DemoBody
 }
 
 export function shouldUseClientDemo(): boolean {
-  return import.meta.env.VITE_STATIC_DEMO === 'true';
+  if (import.meta.env.VITE_STATIC_DEMO === 'true') return true;
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host.endsWith('.github.io')) return true;
+  }
+  return false;
 }
