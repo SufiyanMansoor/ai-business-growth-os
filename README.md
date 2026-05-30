@@ -2,6 +2,8 @@
 
 **Live Repo:** https://github.com/SufiyanMansoor/ai-business-growth-os
 
+**Live Demo:** https://sufiyanmansoor.github.io/ai-business-growth-os/
+
 **AI Influencer & Marketing Studio** — A complete AI-powered business growth operating system.
 
 ## Overview
