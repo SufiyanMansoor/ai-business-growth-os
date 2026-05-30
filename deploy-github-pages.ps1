@@ -12,6 +12,7 @@ Write-Host "Building for GitHub Pages..." -ForegroundColor Cyan
 Push-Location "$LocalApp\frontend"
 cmd /c "npm install --prefer-offline 2>nul"
 $env:GITHUB_PAGES = "true"
+$env:VITE_STATIC_DEMO = "true"
 cmd /c "npm run build"
 if ($LASTEXITCODE -ne 0) { throw "Frontend build failed" }
 Pop-Location

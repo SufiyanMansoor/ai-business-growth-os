@@ -1,9 +1,17 @@
+import { getDemoResponse, shouldUseClientDemo } from './demoResponses';
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (shouldUseClientDemo()) {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const body = options.body ? JSON.parse(options.body as string) : {};
+    return getDemoResponse(endpoint, options.method || 'GET', body) as T;
+  }
+
   const token = localStorage.getItem('authToken');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

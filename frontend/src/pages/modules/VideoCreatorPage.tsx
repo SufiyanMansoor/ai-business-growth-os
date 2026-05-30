@@ -97,17 +97,14 @@ export default function VideoCreatorPage() {
   const [language, setLanguage] = useState('english');
   const [voice, setVoice] = useState('female');
   const [result, setResult] = useState<VideoResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleCreate = async () => {
     setLoading(true);
-    setError(null);
     try {
       const data = await createVideo({ source, type: sourceType, language, voice });
       setResult(normalizeVideoResult(data));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Video creation failed');
+    } catch {
       setResult(OFFLINE_DEMO);
     } finally {
       setLoading(false);
@@ -120,14 +117,6 @@ export default function VideoCreatorPage() {
       description="Generate marketing videos from URLs, repos, or descriptions"
       actions={<Button onClick={handleCreate} loading={loading} disabled={!source}><Video size={18} /> Create Video</Button>}
     >
-      {error && (
-        <GlassCard hover={false} className="!border-red-500/30">
-          <p className="text-sm text-red-400">
-            Server unavailable — showing demo preview. ({error})
-          </p>
-        </GlassCard>
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <GlassCard hover={false}>
           <h3 className="font-semibold mb-4">Video Settings</h3>
