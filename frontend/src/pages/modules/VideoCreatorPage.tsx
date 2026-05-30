@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Video, Play, CheckCircle2, Loader2, Film, Mic, Clapperboard, Sparkles,
-  Download, FileText, ChevronDown,
+  Download, FileText, ChevronDown, Volume2, VolumeX, RefreshCw,
 } from 'lucide-react';
 import ModuleLayout from '@/components/ui/ModuleLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -9,7 +9,13 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { createVideo } from '@/lib/api';
-import { downloadVideoFile, getVideoFormatLabel, renderStoryboardVideo } from '@/lib/videoExport';
+import {
+  downloadVideoFile,
+  getVideoFormatLabel,
+  renderStoryboardVideo,
+  speakVoiceover,
+  stopVoiceover,
+} from '@/lib/videoExport';
 
 interface StoryboardScene {
   scene: number;
@@ -29,6 +35,12 @@ interface VideoResult {
   voiceover: string;
   outputs: Record<string, PlatformOutput>;
   captions?: { enabled: boolean; languages: string[] };
+}
+
+interface CachedVideo {
+  url: string;
+  extension: string;
+  mimeType: string;
 }
 
 const CREATION_STEPS = [
@@ -107,25 +119,14 @@ function delay(ms: number) {
 }
 
 function buildExportText(result: VideoResult, source: string) {
-  const lines = [
+  return [
     '=== AI VIDEO CREATOR — FULL RESULTS ===',
     `Source: ${source}`,
-    '',
-    '--- SCRIPT ---',
-    result.script,
-    '',
-    '--- VOICEOVER ---',
-    result.voiceover,
-    '',
-    '--- STORYBOARD ---',
+    '', '--- SCRIPT ---', result.script,
+    '', '--- VOICEOVER ---', result.voiceover,
+    '', '--- STORYBOARD ---',
     ...result.storyboard.map((s) => `Scene ${s.scene} (${s.duration}): ${s.description}`),
-    '',
-    '--- PLATFORM OUTPUTS ---',
-    ...Object.entries(result.outputs).map(
-      ([p, o]) => `${p}: ${o.duration}, ${o.format}, ${o.status}`
-    ),
-  ];
-  return lines.join('\n');
+  ].join('\n');
 }
 
 function downloadText(filename: string, content: string) {
@@ -138,67 +139,75 @@ function downloadText(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-function VideoPreviewPlayer({
-  storyboard,
-  platform,
+function RealVideoPlayer({
+  videoUrl,
   format,
+  platform,
+  loading,
+  progress,
+  onRegenerate,
 }: {
-  storyboard: StoryboardScene[];
-  platform: string;
+  videoUrl: string | null;
   format: string;
+  platform: string;
+  loading: boolean;
+  progress: number;
+  onRegenerate: () => void;
 }) {
-  const [sceneIndex, setSceneIndex] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const isVertical = format.includes('9:16');
 
   useEffect(() => {
-    if (!playing || !storyboard.length) return;
-    const timer = setInterval(() => {
-      setSceneIndex((i) => (i + 1) % storyboard.length);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [playing, storyboard.length]);
+    if (videoUrl && videoRef.current) {
+      videoRef.current.load();
+      videoRef.current.play().catch(() => undefined);
+    }
+  }, [videoUrl]);
 
-  const scene = storyboard[sceneIndex];
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center py-12 gap-4">
+        <Loader2 size={48} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+        <p className="font-semibold">Real video render ho rahi hai... {progress}%</p>
+        <div className="w-full max-w-md h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+          <div className="h-full transition-all duration-300 rounded-full" style={{ width: `${progress}%`, background: 'var(--primary-color)' }} />
+        </div>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>15-30 seconds lag sakte hain — page band mat karein</p>
+      </div>
+    );
+  }
+
+  if (!videoUrl) {
+    return (
+      <div className="text-center py-12">
+        <Video size={48} className="mx-auto mb-4 opacity-40" />
+        <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>Video preview generate ho rahi hai...</p>
+        <Button variant="secondary" size="sm" onClick={onRegenerate}>
+          <RefreshCw size={16} /> Generate Video
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div
-        className={`relative rounded-2xl overflow-hidden border-2 flex items-center justify-center text-center p-6 transition-all ${isVertical ? 'w-48 h-80' : 'w-full max-w-lg aspect-video'}`}
-        style={{
-          borderColor: 'var(--primary-color)',
-          background: 'linear-gradient(135deg, var(--bg-secondary), rgba(99,102,241,0.2))',
-        }}
-      >
-        <div className="absolute top-3 left-3 badge badge-primary capitalize text-xs">{platform}</div>
-        <div className="absolute top-3 right-3 text-xs" style={{ color: 'var(--text-muted)' }}>{format}</div>
-        <div className="animate-fade-in">
-          <p className="text-xs mb-2" style={{ color: 'var(--primary-color)' }}>
-            Scene {scene?.scene} • {scene?.duration}
-          </p>
-          <p className="text-sm font-medium leading-relaxed">{scene?.description}</p>
-        </div>
-        {playing && (
-          <div className="absolute bottom-0 left-0 right-0 h-1" style={{ background: 'var(--bg-secondary)' }}>
-            <div
-              className="h-full transition-all duration-[2500ms] linear"
-              style={{
-                width: playing ? '100%' : '0%',
-                background: 'var(--primary-color)',
-                animation: 'previewProgress 2.5s linear infinite',
-              }}
-            />
-          </div>
-        )}
+    <div className="flex flex-col items-center gap-3">
+      <div className={`relative rounded-2xl overflow-hidden border-2 w-full ${isVertical ? 'max-w-[280px] mx-auto' : 'max-w-2xl mx-auto'}`}
+        style={{ borderColor: 'var(--primary-color)', background: '#000' }}>
+        <span className="absolute top-3 left-3 z-10 badge badge-primary capitalize">{platform}</span>
+        <span className="absolute top-3 right-3 z-10 badge badge-success">▶ LIVE</span>
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          controls
+          playsInline
+          loop
+          className={`w-full ${isVertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+          style={{ display: 'block' }}
+        />
       </div>
-      <div className="flex gap-2">
-        <Button size="sm" variant="secondary" onClick={() => setPlaying(!playing)}>
-          {playing ? 'Pause Preview' : 'Play Preview'}
-        </Button>
-        <span className="text-xs self-center" style={{ color: 'var(--text-muted)' }}>
-          Storyboard preview — {storyboard.length} scenes
-        </span>
-      </div>
+      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+        ✅ Yeh asli video file hai — Play dabao ya Download karo
+      </p>
     </div>
   );
 }
@@ -215,10 +224,50 @@ export default function VideoCreatorPage() {
   const [isReady, setIsReady] = useState(false);
   const [platformsReady, setPlatformsReady] = useState<Record<string, boolean>>({});
   const [previewPlatform, setPreviewPlatform] = useState('youtube');
-  const [exportingVideo, setExportingVideo] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [videoFormat, setVideoFormat] = useState('MP4/WebM');
+  const [videoCache, setVideoCache] = useState<Record<string, CachedVideo>>({});
+  const [renderingVideo, setRenderingVideo] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const [videoFormat, setVideoFormat] = useState('WebM');
+  const [speaking, setSpeaking] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const renderLock = useRef(false);
+
+  const generateVideoForPlatform = useCallback(async (platform: string, videoResult: VideoResult, fastMode = true): Promise<CachedVideo | null> => {
+    if (renderLock.current) return null;
+    renderLock.current = true;
+    setRenderingVideo(true);
+    setRenderProgress(0);
+
+    try {
+      const format = videoResult.outputs[platform]?.format || '16:9';
+      const hookLine = videoResult.script.split(/[.!?]/)[0]?.trim() || '';
+      const { blob, extension, mimeType } = await renderStoryboardVideo({
+        scenes: videoResult.storyboard,
+        platform,
+        format,
+        title: 'Marketing Video',
+        source,
+        hookLine,
+        fastMode,
+        onProgress: setRenderProgress,
+      });
+
+      const url = URL.createObjectURL(blob);
+      const cached: CachedVideo = { url, extension, mimeType };
+      setVideoFormat(getVideoFormatLabel(mimeType));
+      setVideoCache((prev) => {
+        if (prev[platform]?.url) URL.revokeObjectURL(prev[platform].url);
+        return { ...prev, [platform]: cached };
+      });
+      return cached;
+    } catch (err) {
+      console.error(err);
+      return null;
+    } finally {
+      setRenderingVideo(false);
+      renderLock.current = false;
+    }
+  }, [source]);
 
   useEffect(() => {
     if (!result || loading) return;
@@ -226,17 +275,31 @@ export default function VideoCreatorPage() {
     const platforms = Object.keys(result.outputs);
     setPlatformsReady(Object.fromEntries(platforms.map((p) => [p, false])));
     setPreviewPlatform(platforms[0] || 'youtube');
+    setVideoCache({});
 
     platforms.forEach((platform, index) => {
-      setTimeout(() => {
-        setPlatformsReady((prev) => ({ ...prev, [platform]: true }));
-      }, 400 + index * 350);
+      setTimeout(() => setPlatformsReady((prev) => ({ ...prev, [platform]: true })), 400 + index * 350);
     });
 
+    setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 600);
+
     setTimeout(() => {
-      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 600);
-  }, [result, loading]);
+      if (platforms[0]) generateVideoForPlatform(platforms[0], result, true);
+    }, 1200);
+  }, [result, loading, generateVideoForPlatform]);
+
+  useEffect(() => {
+    if (!result || !platformsReady[previewPlatform] || videoCache[previewPlatform]) return;
+    generateVideoForPlatform(previewPlatform, result, true);
+  }, [previewPlatform, result, platformsReady, videoCache, generateVideoForPlatform]);
+
+  const videoCacheRef = useRef<Record<string, CachedVideo>>({});
+  videoCacheRef.current = videoCache;
+
+  useEffect(() => () => {
+    Object.values(videoCacheRef.current).forEach((v) => URL.revokeObjectURL(v.url));
+    stopVoiceover();
+  }, []);
 
   const runProgressAnimation = async () => {
     for (let i = 0; i < CREATION_STEPS.length; i++) {
@@ -251,18 +314,16 @@ export default function VideoCreatorPage() {
     setLoading(true);
     setIsReady(false);
     setResult(null);
+    setVideoCache({});
     setCurrentStep(0);
     setProgress(5);
     setPlatformsReady({});
 
     const progressTask = runProgressAnimation();
-
     try {
       const data = await createVideo({ source, type: sourceType, language, voice });
       await progressTask;
       setProgress(100);
-      setCurrentStep(CREATION_STEPS.length - 1);
-      await delay(400);
       setResult(normalizeVideoResult(data));
       setIsReady(true);
     } catch {
@@ -275,43 +336,35 @@ export default function VideoCreatorPage() {
     }
   };
 
-  const handleDownloadAll = () => {
-    if (!result) return;
-    downloadText('video-results.txt', buildExportText(result, source));
-  };
-
-  const handleDownloadScript = () => {
-    if (!result) return;
-    downloadText('video-script.txt', result.script);
-  };
-
   const handleDownloadVideo = async () => {
-    if (!result || exportingVideo) return;
+    if (!result || renderingVideo) return;
 
-    setExportingVideo(true);
-    setExportProgress(0);
+    let cached = videoCache[previewPlatform];
+    if (!cached) {
+      cached = (await generateVideoForPlatform(previewPlatform, result, false)) ?? undefined;
+    }
+    if (!cached) {
+      alert('Video render failed. Chrome browser use karein.');
+      return;
+    }
 
-    try {
-      const format = result.outputs[previewPlatform]?.format || '16:9';
-      const { blob, extension, mimeType } = await renderStoryboardVideo({
-        scenes: result.storyboard,
-        platform: previewPlatform,
-        format,
-        title: 'Marketing Video',
-        source,
-        onProgress: setExportProgress,
-      });
+    const blob = await fetch(cached.url).then((r) => r.blob());
+    downloadVideoFile(blob, `ai-video-${previewPlatform}-${Date.now()}.${cached.extension}`);
+  };
 
-      setVideoFormat(getVideoFormatLabel(mimeType));
-      const filename = `ai-video-${previewPlatform}-${Date.now()}.${extension}`;
-      downloadVideoFile(blob, filename);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Video download failed. Try Chrome browser.');
-    } finally {
-      setExportingVideo(false);
-      setExportProgress(0);
+  const handlePlayVoice = () => {
+    if (!result?.voiceover) return;
+    if (speaking) {
+      stopVoiceover();
+      setSpeaking(false);
+    } else {
+      speakVoiceover(result.voiceover, voice);
+      setSpeaking(true);
+      setTimeout(() => setSpeaking(false), 8000);
     }
   };
+
+  const currentVideo = videoCache[previewPlatform];
 
   return (
     <ModuleLayout
@@ -326,19 +379,14 @@ export default function VideoCreatorPage() {
       {isReady && result && !loading && (
         <GlassCard hover={false} className="!border-green-500/40 animate-fade-in">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex items-center gap-3 flex-1">
-              <CheckCircle2 size={28} className="text-green-400 shrink-0" />
-              <div>
-                <p className="font-semibold text-green-400">Video Results Ready!</p>
-                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Neeche scroll karein — preview, script, storyboard aur download yahan hain
-                </p>
-              </div>
+            <CheckCircle2 size={28} className="text-green-400 shrink-0" />
+            <div>
+              <p className="font-semibold text-green-400">Video Ready — Neeche player mein dekhein!</p>
+              <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                Real video auto-generate ho rahi hai. Play button dabao ya Download karo.
+              </p>
             </div>
-            <div className="flex items-center gap-2 text-sm animate-bounce" style={{ color: 'var(--primary-color)' }}>
-              <ChevronDown size={18} />
-              Results neeche hain
-            </div>
+            <ChevronDown size={24} className="animate-bounce hidden sm:block" style={{ color: 'var(--primary-color)' }} />
           </div>
         </GlassCard>
       )}
@@ -365,20 +413,11 @@ export default function VideoCreatorPage() {
               { value: 'male', label: 'Male Voice' },
             ]} value={voice} onChange={(e) => setVoice(e.target.value)} />
           </div>
-
           {loading && (
             <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--border-color)' }}>
-              <p className="text-xs font-medium mb-2" style={{ color: 'var(--primary-color)' }}>
-                Progress: {progress}%
-              </p>
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--primary-color)' }}>Progress: {progress}%</p>
               <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${progress}%`,
-                    background: 'linear-gradient(90deg, var(--gradient-from), var(--gradient-to))',
-                  }}
-                />
+                <div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, background: 'var(--primary-color)' }} />
               </div>
             </div>
           )}
@@ -388,53 +427,24 @@ export default function VideoCreatorPage() {
           {loading ? (
             <GlassCard hover={false} className="py-10">
               <div className="flex flex-col items-center text-center mb-8">
-                <div className="relative mb-6">
-                  <div className="w-20 h-20 rounded-2xl flex items-center justify-center animate-pulse"
-                    style={{ background: 'linear-gradient(135deg, var(--gradient-from), var(--gradient-to))' }}>
-                    <Film size={36} className="text-white" />
-                  </div>
-                  <Loader2 size={28} className="absolute -bottom-2 -right-2 animate-spin text-white"
-                    style={{ filter: 'drop-shadow(0 0 8px var(--glow-color))' }} />
-                </div>
+                <Film size={48} className="mb-4 animate-pulse" style={{ color: 'var(--primary-color)' }} />
                 <h3 className="text-xl font-bold mb-1">Video Ban Rahi Hai...</h3>
-                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  AI aapki marketing video bana raha hai — thora wait karein
-                </p>
+                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>AI script aur storyboard bana raha hai</p>
               </div>
-
               <div className="max-w-md mx-auto space-y-3">
                 {CREATION_STEPS.map((step, index) => {
                   const Icon = step.icon;
                   const done = index < currentStep;
                   const active = index === currentStep;
-
                   return (
-                    <div
-                      key={step.label}
-                      className="flex items-center gap-3 p-3 rounded-xl transition-all duration-300"
-                      style={{
-                        background: active ? 'rgba(99,102,241,0.15)' : done ? 'rgba(34,197,94,0.08)' : 'var(--bg-secondary)',
-                        border: active ? '1px solid var(--primary-color)' : '1px solid transparent',
-                      }}
-                    >
-                      <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    <div key={step.label} className="flex items-center gap-3 p-3 rounded-xl"
+                      style={{ background: active ? 'rgba(99,102,241,0.15)' : 'var(--bg-secondary)', border: active ? '1px solid var(--primary-color)' : 'none' }}>
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center"
                         style={{ background: done ? 'var(--success)' : active ? 'var(--primary-color)' : 'var(--card-bg)' }}>
-                        {done ? (
-                          <CheckCircle2 size={18} className="text-white" />
-                        ) : active ? (
-                          <Loader2 size={18} className="text-white animate-spin" />
-                        ) : (
-                          <Icon size={18} style={{ color: 'var(--text-muted)' }} />
-                        )}
+                        {done ? <CheckCircle2 size={18} className="text-white" /> : active ? <Loader2 size={18} className="text-white animate-spin" /> : <Icon size={18} />}
                       </div>
-                      <div className="flex-1 text-left">
-                        <p className={`text-sm font-medium ${active ? '' : done ? 'text-green-400' : ''}`}
-                          style={{ color: active ? 'var(--text-color)' : done ? undefined : 'var(--text-muted)' }}>
-                          {step.label}{active && '...'}
-                        </p>
-                      </div>
+                      <p className="text-sm flex-1">{step.label}{active && '...'}</p>
                       {done && <span className="text-xs text-green-400">Done</span>}
-                      {active && <span className="text-xs badge badge-primary">In Progress</span>}
                     </div>
                   );
                 })}
@@ -442,140 +452,103 @@ export default function VideoCreatorPage() {
             </GlassCard>
           ) : result ? (
             <div ref={resultsRef} id="video-results" className="space-y-4 scroll-mt-4">
-              {/* === VIDEO RESULTS HEADER === */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-2xl"
-                style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))', border: '1px solid var(--primary-color)' }}>
+              <div className="p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))', border: '2px solid var(--primary-color)' }}>
                 <div>
                   <h3 className="text-lg font-bold flex items-center gap-2">
-                    <Film size={22} style={{ color: 'var(--primary-color)' }} />
-                    Video Results
+                    <Film size={22} style={{ color: 'var(--primary-color)' }} /> Video Results
                   </h3>
                   <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Yahan aapke saare results hain — preview dekhein, download karein
+                    Player mein video dekhein • Download • Voice sunen
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Button size="sm" variant="secondary" onClick={handleDownloadScript} disabled={exportingVideo}>
+                  <Button size="sm" variant="secondary" onClick={() => downloadText('script.txt', result.script)}>
                     <FileText size={16} /> Script
                   </Button>
-                  <Button size="sm" variant="neon" onClick={handleDownloadVideo} loading={exportingVideo} disabled={exportingVideo}>
-                    <Download size={16} /> {exportingVideo ? `Rendering ${exportProgress}%` : 'Download Video'}
+                  <Button size="sm" variant="secondary" onClick={handlePlayVoice}>
+                    {speaking ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                    {speaking ? 'Stop Voice' : 'Play Voice'}
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={handleDownloadAll} disabled={exportingVideo}>
-                    <Download size={16} /> All Text
+                  <Button size="sm" variant="neon" onClick={handleDownloadVideo} disabled={renderingVideo}>
+                    <Download size={16} />
+                    {renderingVideo ? `${renderProgress}%` : `Download ${videoFormat}`}
                   </Button>
                 </div>
               </div>
 
-              {/* === VIDEO PREVIEW PLAYER === */}
               <GlassCard hover={false}>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   <h4 className="font-semibold flex items-center gap-2">
                     <Play size={18} style={{ color: 'var(--primary-color)' }} />
-                    Video Preview
-                    <span className="badge badge-primary text-xs">Scene-by-scene</span>
+                    Video Player
+                    <span className="badge badge-success text-xs">Real Video</span>
                   </h4>
-                  <Button variant="neon" onClick={handleDownloadVideo} loading={exportingVideo} disabled={exportingVideo}>
-                    <Download size={16} />
-                    {exportingVideo ? `Video ban rahi hai... ${exportProgress}%` : `Download ${previewPlatform} Video (${videoFormat})`}
-                  </Button>
-                </div>
-
-                {exportingVideo && (
-                  <div className="mb-4 p-4 rounded-xl" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid var(--primary-color)' }}>
-                    <div className="flex items-center gap-3 mb-2">
-                      <Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
-                      <p className="text-sm font-medium">MP4/WebM file render ho rahi hai — {exportProgress}%</p>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
-                      <div
-                        className="h-full rounded-full transition-all duration-300"
-                        style={{ width: `${exportProgress}%`, background: 'var(--primary-color)' }}
-                      />
-                    </div>
-                    <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
-                      Browser mein storyboard scenes se real video file bana raha hai...
-                    </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => result && generateVideoForPlatform(previewPlatform, result, true)} disabled={renderingVideo}>
+                      <RefreshCw size={14} /> Re-render
+                    </Button>
+                    <Button size="sm" variant="neon" onClick={handleDownloadVideo} disabled={renderingVideo || !currentVideo}>
+                      <Download size={14} /> Download
+                    </Button>
                   </div>
-                )}
-
-                <VideoPreviewPlayer
-                  storyboard={result.storyboard}
-                  platform={previewPlatform}
+                </div>
+                <RealVideoPlayer
+                  videoUrl={currentVideo?.url ?? null}
                   format={result.outputs[previewPlatform]?.format || '16:9'}
+                  platform={previewPlatform}
+                  loading={renderingVideo}
+                  progress={renderProgress}
+                  onRegenerate={() => result && generateVideoForPlatform(previewPlatform, result, true)}
                 />
               </GlassCard>
 
-              {/* === SCRIPT === */}
-              <GlassCard hover={false} className="animate-slide-up">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-green-400" /> 1. Generated Script
-                </h4>
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3"><CheckCircle2 size={18} className="inline text-green-400 mr-2" />Script</h4>
                 <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.script}</p>
               </GlassCard>
 
-              {/* === VOICEOVER === */}
               {result.voiceover && (
-                <GlassCard hover={false} className="animate-slide-up">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <Mic size={18} style={{ color: 'var(--primary-color)' }} /> 2. Voiceover Script
-                  </h4>
+                <GlassCard hover={false}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold"><Mic size={18} className="inline mr-2" style={{ color: 'var(--primary-color)' }} />Voiceover</h4>
+                    <Button size="sm" variant="secondary" onClick={handlePlayVoice}>
+                      {speaking ? <VolumeX size={14} /> : <Volume2 size={14} />} Listen
+                    </Button>
+                  </div>
                   <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.voiceover}</p>
                 </GlassCard>
               )}
 
-              {/* === STORYBOARD === */}
-              <GlassCard hover={false} className="animate-slide-up">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <Clapperboard size={18} style={{ color: 'var(--primary-color)' }} /> 3. Storyboard ({result.storyboard.length} Scenes)
-                </h4>
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3"><Clapperboard size={18} className="inline mr-2" />Storyboard ({result.storyboard.length} scenes)</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {result.storyboard.map((scene) => (
                     <div key={scene.scene} className="p-4 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="badge badge-primary">Scene {scene.scene}</span>
-                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.duration}</span>
-                      </div>
-                      <p className="text-sm">{scene.description}</p>
+                      <span className="badge badge-primary mr-2">Scene {scene.scene}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.duration}</span>
+                      <p className="text-sm mt-2">{scene.description}</p>
                     </div>
                   ))}
                 </div>
               </GlassCard>
 
-              {/* === PLATFORM VIDEOS === */}
               <div>
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <Video size={18} style={{ color: 'var(--primary-color)' }} />
-                  4. Platform Videos — Click to Preview
-                </h4>
+                <h4 className="font-semibold mb-3"><Video size={18} className="inline mr-2" />Platform Videos — Click to switch</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   {Object.entries(result.outputs).map(([platform, info]) => {
                     const ready = platformsReady[platform];
                     const selected = previewPlatform === platform;
+                    const hasVideo = !!videoCache[platform];
                     return (
-                      <button
-                        key={platform}
-                        type="button"
-                        onClick={() => ready && setPreviewPlatform(platform)}
-                        className="text-left transition-all duration-300"
-                      >
-                        <GlassCard
-                          className={`text-center !p-4 w-full ${selected ? '!border-[var(--primary-color)] ring-2 ring-[var(--primary-color)]' : ''}`}
-                          hover={false}
-                        >
-                          {ready ? (
-                            <Play size={24} className="mx-auto mb-2" style={{ color: 'var(--primary-color)' }} />
-                          ) : (
-                            <Loader2 size={24} className="mx-auto mb-2 animate-spin" style={{ color: 'var(--primary-color)' }} />
-                          )}
+                      <button key={platform} type="button" onClick={() => ready && setPreviewPlatform(platform)} className="text-left">
+                        <GlassCard className={`text-center !p-4 w-full ${selected ? 'ring-2 ring-[var(--primary-color)]' : ''}`} hover={false}>
+                          {hasVideo ? <CheckCircle2 size={24} className="mx-auto mb-2 text-green-400" /> : ready ? <Play size={24} className="mx-auto mb-2" style={{ color: 'var(--primary-color)' }} /> : <Loader2 size={24} className="mx-auto mb-2 animate-spin" />}
                           <p className="font-medium capitalize text-sm">{platform}</p>
                           <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{info.duration} • {info.format}</p>
-                          <span className={`badge mt-2 ${ready ? 'badge-success' : 'badge-primary'}`}>
-                            {ready ? 'Ready' : 'Rendering...'}
+                          <span className={`badge mt-2 ${hasVideo ? 'badge-success' : ready ? 'badge-primary' : ''}`}>
+                            {hasVideo ? 'Video Ready' : ready ? 'Select' : 'Loading...'}
                           </span>
-                          {selected && ready && (
-                            <p className="text-xs mt-2" style={{ color: 'var(--primary-color)' }}>▶ Previewing</p>
-                          )}
                         </GlassCard>
                       </button>
                     );
@@ -587,12 +560,7 @@ export default function VideoCreatorPage() {
             <GlassCard hover={false} className="text-center py-20">
               <Video size={48} className="mx-auto mb-4 opacity-30" />
               <p className="font-medium mb-2">Apni marketing video banayein</p>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                Settings configure karein aur &quot;Create Video&quot; par click karein
-              </p>
-              <p className="text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
-                Results yahan right side par dikhenge
-              </p>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Source likho aur Create Video dabao</p>
             </GlassCard>
           )}
         </div>
