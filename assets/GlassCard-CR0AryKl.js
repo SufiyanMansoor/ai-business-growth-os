@@ -1,0 +1,1 @@
+import{p as t}from"./index-CPw5_9PW.js";function n({children:o,className:s="",hover:a=!0,onClick:r}){return t.jsx("div",{className:`glass-card p-6 ${a?"":"hover:!transform-none hover:!shadow-[0_8px_32px_var(--shadow-color)]"} ${s}`,onClick:r,role:r?"button":void 0,children:o})}export{n as G};
