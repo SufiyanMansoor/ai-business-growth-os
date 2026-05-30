@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { generateAIResponse, SYSTEM_PROMPTS } from '../services/openai.js';
 import { scrapeWebsite, buildContextFromScrape } from '../services/scraper.js';
+import { normalizeVideoResult } from '../utils/videoNormalize.js';
 
 const router = Router();
 
-async function aiOrFallback(systemPrompt, userPrompt, fallback) {
+async function aiOrFallback(systemPrompt, userPrompt, fallback, options = {}) {
   try {
-    const result = await generateAIResponse(systemPrompt, userPrompt);
+    const result = await generateAIResponse(systemPrompt, userPrompt, options);
     return result || fallback;
   } catch (error) {
     console.error('AI generation error:', error.message);
@@ -99,8 +100,8 @@ router.post('/video', async (req, res) => {
     },
     captions: { enabled: true, languages: ['English', 'Urdu', 'Arabic'] },
   };
-  const result = await aiOrFallback(SYSTEM_PROMPTS.video, context, fallback);
-  res.json(result);
+  const result = await aiOrFallback(SYSTEM_PROMPTS.video, context, fallback, { maxTokens: 2048 });
+  res.json(normalizeVideoResult(result, fallback));
 });
 
 router.post('/influencers', async (req, res) => {

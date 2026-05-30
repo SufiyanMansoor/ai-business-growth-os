@@ -9,7 +9,8 @@ export function getOpenAI() {
   return openai;
 }
 
-export async function generateAIResponse(systemPrompt, userPrompt, jsonMode = true) {
+export async function generateAIResponse(systemPrompt, userPrompt, options = {}) {
+  const { jsonMode = true, maxTokens = 4096 } = options;
   const client = getOpenAI();
 
   if (!client) {
@@ -24,7 +25,7 @@ export async function generateAIResponse(systemPrompt, userPrompt, jsonMode = tr
     ],
     response_format: jsonMode ? { type: 'json_object' } : undefined,
     temperature: 0.7,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
   });
 
   const content = response.choices[0]?.message?.content;

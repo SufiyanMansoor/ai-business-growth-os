@@ -1,7 +1,7 @@
 # Deploy frontend to GitHub Pages (manual — no workflow scope needed)
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ProjectRoot = $PSScriptRoot
 $LocalApp = "$env:LOCALAPPDATA\ai-growth-os\app"
 $Repo = "https://github.com/SufiyanMansoor/ai-business-growth-os.git"
 
@@ -10,6 +10,7 @@ robocopy $ProjectRoot $LocalApp /MIR /XD node_modules .git /NFL /NDL /NJH /NJS /
 
 Write-Host "Building for GitHub Pages..." -ForegroundColor Cyan
 Push-Location "$LocalApp\frontend"
+npm install --prefer-offline 2>$null
 $env:GITHUB_PAGES = "true"
 npm run build
 Pop-Location
