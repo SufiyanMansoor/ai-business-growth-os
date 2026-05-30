@@ -1,3 +1,5 @@
+import { buildVideoContent } from './videoContent';
+
 type DemoBody = Record<string, unknown>;
 
 const DEFAULT_VIDEO_OUTPUTS = {
@@ -87,18 +89,13 @@ export function getDemoResponse(endpoint: string, method: string, body: DemoBody
   }
 
   if (method === 'POST' && path === '/ai/video') {
-    const source = String(body.source || 'your product');
+    const source = String(body.source || 'AI Business Growth OS');
+    const sourceType = String(body.type || 'description');
     const language = String(body.language || 'english');
     const voice = String(body.voice || 'female');
+    const content = buildVideoContent(source, sourceType, language, voice);
     return {
-      script: `Discover ${source} — the smart way to grow your business. Hook viewers in 3 seconds, showcase key benefits, and drive action with a clear CTA tailored for ${language} audiences.`,
-      storyboard: [
-        { scene: 1, description: 'Bold opening hook with animated text', duration: '3s' },
-        { scene: 2, description: `Product showcase highlighting ${source}`, duration: '8s' },
-        { scene: 3, description: 'Social proof and customer testimonials', duration: '5s' },
-        { scene: 4, description: 'Call to action with brand logo', duration: '4s' },
-      ],
-      voiceover: `Professional ${voice} voiceover script in ${language} with natural pacing and emotional emphasis.`,
+      ...content,
       outputs: DEFAULT_VIDEO_OUTPUTS,
       captions: { enabled: true, languages: ['English', 'Urdu', 'Arabic'] },
     };

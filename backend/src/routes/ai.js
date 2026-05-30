@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { generateAIResponse, SYSTEM_PROMPTS } from '../services/openai.js';
 import { scrapeWebsite, buildContextFromScrape } from '../services/scraper.js';
 import { normalizeVideoResult } from '../utils/videoNormalize.js';
+import { buildVideoContentPayload } from '../utils/videoContent.js';
 
 const router = Router();
 
@@ -88,10 +89,9 @@ router.post('/video', async (req, res) => {
     const scraped = await scrapeWebsite(source);
     context = buildContextFromScrape(scraped, source);
   }
+  const topicContent = buildVideoContentPayload(source, type || 'description', language, voice);
   const fallback = {
-    script: `Video script for ${source}`,
-    storyboard: [{ scene: 1, description: 'Opening hook', duration: '3s' }, { scene: 2, description: 'Product showcase', duration: '8s' }],
-    voiceover: `Voiceover script (${voice}, ${language})`,
+    ...topicContent,
     outputs: {
       youtube: { status: 'ready', duration: '60s', format: '16:9' },
       instagram: { status: 'ready', duration: '30s', format: '9:16' },

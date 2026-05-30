@@ -2,12 +2,16 @@ export interface VideoScene {
   scene: number;
   description: string;
   duration: string;
+  headline?: string;
+  bullets?: string[];
 }
 
 export interface RenderVideoOptions {
   scenes: VideoScene[];
   platform: string;
   format: string;
+  productName?: string;
+  tagline?: string;
   title?: string;
   source?: string;
   hookLine?: string;
@@ -79,8 +83,9 @@ function drawFrame(
   data: {
     scene: VideoScene;
     platform: string;
-    title: string;
-    source: string;
+    productName: string;
+    tagline: string;
+    website: string;
     hookLine: string;
     sceneIndex: number;
     totalScenes: number;
@@ -88,11 +93,12 @@ function drawFrame(
     globalTime: number;
   }
 ) {
-  const { scene, platform, title, source, hookLine, sceneIndex, totalScenes, sceneProgress, globalTime } = data;
+  const { scene, platform, productName, tagline, website, hookLine, sceneIndex, totalScenes, sceneProgress, globalTime } = data;
   const isVertical = height > width;
-  const padding = isVertical ? 40 : 56;
-  const fade = sceneProgress < 0.15 ? sceneProgress / 0.15 : sceneProgress > 0.85 ? (1 - sceneProgress) / 0.15 : 1;
+  const padding = isVertical ? 36 : 52;
+  const fade = sceneProgress < 0.12 ? sceneProgress / 0.12 : sceneProgress > 0.88 ? (1 - sceneProgress) / 0.12 : 1;
   const pulse = 0.5 + Math.sin(globalTime * 3) * 0.05;
+  const headline = scene.headline || hookLine;
 
   const gradient = ctx.createLinearGradient(0, 0, width, height);
   gradient.addColorStop(0, '#0f0c29');
@@ -101,63 +107,75 @@ function drawFrame(
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 6; i++) {
     const x = (Math.sin(globalTime + i * 1.2) * 0.5 + 0.5) * width;
     const y = (Math.cos(globalTime * 0.7 + i) * 0.5 + 0.5) * height;
-    ctx.fillStyle = `rgba(99,102,241,${0.03 + i * 0.008})`;
+    ctx.fillStyle = `rgba(99,102,241,${0.04 + i * 0.01})`;
     ctx.beginPath();
-    ctx.arc(x, y, 40 + i * 20, 0, Math.PI * 2);
+    ctx.arc(x, y, 30 + i * 18, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  ctx.fillStyle = `rgba(99,102,241,${0.35 * pulse})`;
-  ctx.fillRect(0, 0, width, isVertical ? 100 : 72);
+  ctx.fillStyle = `rgba(99,102,241,${0.4 * pulse})`;
+  ctx.fillRect(0, 0, width, isVertical ? 96 : 68);
 
   ctx.globalAlpha = fade;
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${isVertical ? 20 : 26}px Inter, Arial, sans-serif`;
-  ctx.fillText('AI Business Growth OS', padding, isVertical ? 44 : 40);
+  ctx.font = `bold ${isVertical ? 18 : 24}px Inter, Arial, sans-serif`;
+  const brandShort = productName.length > 28 ? `${productName.slice(0, 25)}...` : productName;
+  ctx.fillText(brandShort, padding, isVertical ? 40 : 36);
 
   ctx.fillStyle = '#c4b5fd';
-  ctx.font = `${isVertical ? 13 : 15}px Inter, Arial, sans-serif`;
-  ctx.fillText(`${platform.toUpperCase()} • ${title}`, padding, isVertical ? 72 : 64);
+  ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
+  wrapText(ctx, `${platform.toUpperCase()} • ${tagline}`, padding, isVertical ? 62 : 56, width - padding * 2, isVertical ? 16 : 18);
 
   ctx.fillStyle = '#6366f1';
-  ctx.fillRect(padding, isVertical ? 88 : 76, 60 * pulse, 3);
+  ctx.fillRect(padding, isVertical ? 82 : 68, 50 * pulse, 3);
 
   ctx.fillStyle = '#a5b4fc';
-  ctx.font = `600 ${isVertical ? 14 : 16}px Inter, Arial, sans-serif`;
-  ctx.fillText(`Scene ${scene.scene} / ${totalScenes}`, padding, isVertical ? 120 : 100);
+  ctx.font = `600 ${isVertical ? 12 : 14}px Inter, Arial, sans-serif`;
+  ctx.fillText(`Scene ${scene.scene} / ${totalScenes}`, padding, isVertical ? 108 : 88);
 
-  if (sceneIndex === 0 && hookLine) {
+  let yPos = isVertical ? 130 : 112;
+
+  if (headline) {
     ctx.fillStyle = '#fbbf24';
-    ctx.font = `bold ${isVertical ? 15 : 18}px Inter, Arial, sans-serif`;
-    wrapText(ctx, hookLine, padding, isVertical ? 150 : 130, width - padding * 2, isVertical ? 22 : 26);
+    ctx.font = `bold ${isVertical ? 14 : 17}px Inter, Arial, sans-serif`;
+    yPos = wrapText(ctx, headline, padding, yPos, width - padding * 2, isVertical ? 20 : 24) + (isVertical ? 14 : 18);
   }
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${isVertical ? 22 * fade : 28 * fade}px Inter, Arial, sans-serif`;
-  const descY = isVertical ? (sceneIndex === 0 && hookLine ? 220 : 160) : (sceneIndex === 0 && hookLine ? 190 : 150);
-  wrapText(ctx, scene.description, padding, descY, width - padding * 2, isVertical ? 32 : 38);
+  ctx.font = `bold ${isVertical ? 16 : 22}px Inter, Arial, sans-serif`;
+  yPos = wrapText(ctx, scene.description, padding, yPos, width - padding * 2, isVertical ? 24 : 30) + (isVertical ? 10 : 14);
 
-  if (source) {
-    ctx.fillStyle = 'rgba(148,163,184,0.85)';
-    ctx.font = `${isVertical ? 12 : 14}px Inter, Arial, sans-serif`;
-    const sourceShort = source.length > 45 ? `${source.slice(0, 42)}...` : source;
-    ctx.fillText(sourceShort, padding, height - (isVertical ? 72 : 56));
+  if (scene.bullets?.length) {
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
+    const maxBullets = isVertical ? 3 : 4;
+    for (let b = 0; b < Math.min(maxBullets, scene.bullets.length); b++) {
+      const bullet = scene.bullets[b];
+      const bulletText = bullet.length > 55 ? `${bullet.slice(0, 52)}...` : bullet;
+      yPos = wrapText(ctx, `✓ ${bulletText}`, padding + 4, yPos, width - padding * 2 - 8, isVertical ? 18 : 22) + (isVertical ? 6 : 8);
+    }
   }
 
-  const barY = height - (isVertical ? 36 : 28);
+  if (website) {
+    ctx.fillStyle = 'rgba(148,163,184,0.9)';
+    ctx.font = `${isVertical ? 10 : 12}px Inter, Arial, sans-serif`;
+    const webShort = website.length > 42 ? `${website.slice(0, 39)}...` : website;
+    ctx.fillText(webShort, padding, height - (isVertical ? 48 : 36));
+  }
+
+  const barY = height - (isVertical ? 24 : 18);
   const barW = width - padding * 2;
   ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillRect(padding, barY, barW, 6);
-  const totalProgress = (sceneIndex + sceneProgress) / totalScenes;
+  ctx.fillRect(padding, barY, barW, 5);
   ctx.fillStyle = '#6366f1';
-  ctx.fillRect(padding, barY, barW * totalProgress, 6);
+  ctx.fillRect(padding, barY, barW * ((sceneIndex + sceneProgress) / totalScenes), 5);
 
   ctx.fillStyle = '#94a3b8';
-  ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
-  ctx.fillText(scene.duration, width - padding - 28, barY - 6);
+  ctx.font = `${isVertical ? 10 : 12}px Inter, Arial, sans-serif`;
+  ctx.fillText(scene.duration, width - padding - 24, barY - 5);
 
   ctx.globalAlpha = 1;
 }
@@ -171,7 +189,8 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
     scenes,
     platform,
     format,
-    title = 'Marketing Video',
+    productName = 'Your Product',
+    tagline = 'Marketing Video',
     source = '',
     hookLine = '',
     fastMode = false,
@@ -246,8 +265,9 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
     drawFrame(ctx, width, height, {
       scene: scenes[sceneIndex],
       platform,
-      title,
-      source,
+      productName,
+      tagline,
+      website: source,
       hookLine,
       sceneIndex,
       totalScenes: scenes.length,
@@ -266,8 +286,9 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
   drawFrame(ctx, width, height, {
     scene: scenes[scenes.length - 1],
     platform,
-    title,
-    source,
+    productName,
+    tagline,
+    website: source,
     hookLine,
     sceneIndex: scenes.length - 1,
     totalScenes: scenes.length,

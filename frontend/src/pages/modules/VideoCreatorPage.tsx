@@ -9,6 +9,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { createVideo } from '@/lib/api';
+import { buildVideoContent, getVideoTopic } from '@/lib/videoContent';
 import {
   downloadVideoFile,
   getVideoFormatLabel,
@@ -21,6 +22,8 @@ interface StoryboardScene {
   scene: number;
   description: string;
   duration: string;
+  headline?: string;
+  bullets?: string[];
 }
 
 interface PlatformOutput {
@@ -102,17 +105,30 @@ function normalizeVideoResult(data: unknown): VideoResult {
   return { script, storyboard, voiceover, outputs };
 }
 
-const OFFLINE_DEMO: VideoResult = {
-  script: 'AI-generated marketing script based on your input...',
-  storyboard: [
-    { scene: 1, description: 'Opening hook with bold text animation', duration: '3s' },
-    { scene: 2, description: 'Product showcase with feature highlights', duration: '8s' },
-    { scene: 3, description: 'Social proof and testimonials', duration: '5s' },
-    { scene: 4, description: 'Call to action with brand logo', duration: '4s' },
-  ],
-  voiceover: 'Professional AI voiceover script with natural pacing...',
-  outputs: DEFAULT_OUTPUTS,
-};
+function enrichVideoResult(
+  data: unknown,
+  source: string,
+  sourceType: string,
+  language: string,
+  voice: string
+): VideoResult {
+  const normalized = normalizeVideoResult(data);
+  const built = buildVideoContent(source, sourceType, language, voice);
+  return {
+    ...normalized,
+    script: built.script,
+    storyboard: built.storyboard,
+    voiceover: built.voiceover.replace(/\s*\[.*\]$/, ''),
+  };
+}
+
+const OFFLINE_DEMO: VideoResult = enrichVideoResult(
+  null,
+  'AI Business Growth OS — Marketing Software',
+  'description',
+  'english',
+  'female'
+);
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -229,14 +245,15 @@ export default function VideoCreatorPage() {
 
     try {
       const format = videoResult.outputs[platform]?.format || '16:9';
-      const hookLine = videoResult.script.split(/[.!?]/)[0]?.trim() || '';
+      const topic = getVideoTopic(source, sourceType);
       const { blob, extension, mimeType } = await renderStoryboardVideo({
         scenes: videoResult.storyboard,
         platform,
         format,
-        title: 'Marketing Video',
-        source,
-        hookLine,
+        productName: topic.productName,
+        tagline: topic.tagline,
+        source: topic.website,
+        hookLine: topic.hook,
         fastMode,
         onProgress: setRenderProgress,
       });
@@ -256,7 +273,7 @@ export default function VideoCreatorPage() {
       setRenderingVideo(false);
       renderLock.current = false;
     }
-  }, [source]);
+  }, [source, sourceType]);
 
   useEffect(() => {
     if (!result || loading) return;
@@ -313,12 +330,12 @@ export default function VideoCreatorPage() {
       const data = await createVideo({ source, type: sourceType, language, voice });
       await progressTask;
       setProgress(100);
-      setResult(normalizeVideoResult(data));
+      setResult(enrichVideoResult(data, source, sourceType, language, voice));
       setIsReady(true);
     } catch {
       await progressTask;
       setProgress(100);
-      setResult(OFFLINE_DEMO);
+      setResult(enrichVideoResult(null, source, sourceType, language, voice));
       setIsReady(true);
     } finally {
       setLoading(false);
