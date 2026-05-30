@@ -9,6 +9,7 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { createVideo } from '@/lib/api';
+import { downloadVideoFile, getVideoFormatLabel, renderStoryboardVideo } from '@/lib/videoExport';
 
 interface StoryboardScene {
   scene: number;
@@ -214,6 +215,9 @@ export default function VideoCreatorPage() {
   const [isReady, setIsReady] = useState(false);
   const [platformsReady, setPlatformsReady] = useState<Record<string, boolean>>({});
   const [previewPlatform, setPreviewPlatform] = useState('youtube');
+  const [exportingVideo, setExportingVideo] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [videoFormat, setVideoFormat] = useState('MP4/WebM');
   const resultsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -279,6 +283,34 @@ export default function VideoCreatorPage() {
   const handleDownloadScript = () => {
     if (!result) return;
     downloadText('video-script.txt', result.script);
+  };
+
+  const handleDownloadVideo = async () => {
+    if (!result || exportingVideo) return;
+
+    setExportingVideo(true);
+    setExportProgress(0);
+
+    try {
+      const format = result.outputs[previewPlatform]?.format || '16:9';
+      const { blob, extension, mimeType } = await renderStoryboardVideo({
+        scenes: result.storyboard,
+        platform: previewPlatform,
+        format,
+        title: 'Marketing Video',
+        source,
+        onProgress: setExportProgress,
+      });
+
+      setVideoFormat(getVideoFormatLabel(mimeType));
+      const filename = `ai-video-${previewPlatform}-${Date.now()}.${extension}`;
+      downloadVideoFile(blob, filename);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Video download failed. Try Chrome browser.');
+    } finally {
+      setExportingVideo(false);
+      setExportProgress(0);
+    }
   };
 
   return (
@@ -423,22 +455,50 @@ export default function VideoCreatorPage() {
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Button size="sm" variant="secondary" onClick={handleDownloadScript}>
+                  <Button size="sm" variant="secondary" onClick={handleDownloadScript} disabled={exportingVideo}>
                     <FileText size={16} /> Script
                   </Button>
-                  <Button size="sm" variant="neon" onClick={handleDownloadAll}>
-                    <Download size={16} /> Download All
+                  <Button size="sm" variant="neon" onClick={handleDownloadVideo} loading={exportingVideo} disabled={exportingVideo}>
+                    <Download size={16} /> {exportingVideo ? `Rendering ${exportProgress}%` : 'Download Video'}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={handleDownloadAll} disabled={exportingVideo}>
+                    <Download size={16} /> All Text
                   </Button>
                 </div>
               </div>
 
               {/* === VIDEO PREVIEW PLAYER === */}
               <GlassCard hover={false}>
-                <h4 className="font-semibold mb-4 flex items-center gap-2">
-                  <Play size={18} style={{ color: 'var(--primary-color)' }} />
-                  Video Preview
-                  <span className="badge badge-primary text-xs">Scene-by-scene</span>
-                </h4>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Play size={18} style={{ color: 'var(--primary-color)' }} />
+                    Video Preview
+                    <span className="badge badge-primary text-xs">Scene-by-scene</span>
+                  </h4>
+                  <Button variant="neon" onClick={handleDownloadVideo} loading={exportingVideo} disabled={exportingVideo}>
+                    <Download size={16} />
+                    {exportingVideo ? `Video ban rahi hai... ${exportProgress}%` : `Download ${previewPlatform} Video (${videoFormat})`}
+                  </Button>
+                </div>
+
+                {exportingVideo && (
+                  <div className="mb-4 p-4 rounded-xl" style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid var(--primary-color)' }}>
+                    <div className="flex items-center gap-3 mb-2">
+                      <Loader2 size={20} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
+                      <p className="text-sm font-medium">MP4/WebM file render ho rahi hai — {exportProgress}%</p>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{ width: `${exportProgress}%`, background: 'var(--primary-color)' }}
+                      />
+                    </div>
+                    <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
+                      Browser mein storyboard scenes se real video file bana raha hai...
+                    </p>
+                  </div>
+                )}
+
                 <VideoPreviewPlayer
                   storyboard={result.storyboard}
                   platform={previewPlatform}
