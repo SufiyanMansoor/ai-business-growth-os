@@ -10,9 +10,10 @@ robocopy $ProjectRoot $LocalApp /MIR /XD node_modules .git /NFL /NDL /NJH /NJS /
 
 Write-Host "Building for GitHub Pages..." -ForegroundColor Cyan
 Push-Location "$LocalApp\frontend"
-npm install --prefer-offline 2>$null
+cmd /c "npm install --prefer-offline 2>nul"
 $env:GITHUB_PAGES = "true"
-npm run build
+cmd /c "npm run build"
+if ($LASTEXITCODE -ne 0) { throw "Frontend build failed" }
 Pop-Location
 
 $DeployDir = "$env:TEMP\ghp-deploy"
@@ -23,14 +24,15 @@ Copy-Item "$DeployDir\index.html" "$DeployDir\404.html" -Force
 Write-Host "Pushing to gh-pages branch..." -ForegroundColor Cyan
 Push-Location $DeployDir
 git init | Out-Null
-git checkout -b gh-pages 2>$null
+cmd /c "git checkout -b gh-pages 2>nul"
 git add .
 git config user.email "deploy@aigrowthos.com"
 git config user.name "Deploy Bot"
 git commit -m "Deploy to GitHub Pages $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -q
-git remote remove origin 2>$null
+cmd /c "git remote remove origin 2>nul"
 git remote add origin $Repo
-git push -f origin gh-pages
+cmd /c "git push -f origin gh-pages"
+if ($LASTEXITCODE -ne 0) { throw "gh-pages push failed" }
 Pop-Location
 
 Write-Host ""
