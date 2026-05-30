@@ -118,17 +118,6 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildExportText(result: VideoResult, source: string) {
-  return [
-    '=== AI VIDEO CREATOR — FULL RESULTS ===',
-    `Source: ${source}`,
-    '', '--- SCRIPT ---', result.script,
-    '', '--- VOICEOVER ---', result.voiceover,
-    '', '--- STORYBOARD ---',
-    ...result.storyboard.map((s) => `Scene ${s.scene} (${s.duration}): ${s.description}`),
-  ].join('\n');
-}
-
 function downloadText(filename: string, content: string) {
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -339,9 +328,9 @@ export default function VideoCreatorPage() {
   const handleDownloadVideo = async () => {
     if (!result || renderingVideo) return;
 
-    let cached = videoCache[previewPlatform];
+    let cached: CachedVideo | null | undefined = videoCache[previewPlatform];
     if (!cached) {
-      cached = (await generateVideoForPlatform(previewPlatform, result, false)) ?? undefined;
+      cached = await generateVideoForPlatform(previewPlatform, result, false);
     }
     if (!cached) {
       alert('Video render failed. Chrome browser use karein.');
