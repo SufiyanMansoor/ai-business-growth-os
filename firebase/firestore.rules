@@ -1,0 +1,111 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isAgencyOrAdmin() {
+      return hasRole('admin') || hasRole('agency');
+    }
+
+    // Users
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Campaigns
+    match /campaigns/{campaignId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid ||
+         resource.data.clientId == request.auth.uid ||
+         isAgencyOrAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAgencyOrAdmin());
+      allow delete: if isAgencyOrAdmin();
+    }
+
+    // Leads / CRM
+    match /leads/{leadId} {
+      allow read, write: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAgencyOrAdmin());
+      allow create: if isAuthenticated();
+    }
+
+    // Content (social posts, generated content)
+    match /content/{contentId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid || isAgencyOrAdmin());
+      allow delete: if isAgencyOrAdmin();
+    }
+
+    // Influencers
+    match /influencers/{influencerId} {
+      allow read: if isAuthenticated();
+      allow write: if isAgencyOrAdmin();
+    }
+
+    // Outreach campaigns
+    match /outreach/{outreachId} {
+      allow read, write: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
+
+    // Reports
+    match /reports/{reportId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.userId == request.auth.uid ||
+         resource.data.clientId == request.auth.uid ||
+         isAgencyOrAdmin());
+      allow create: if isAuthenticated();
+    }
+
+    // Analytics events
+    match /analytics/{eventId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+
+    // Autopilot jobs
+    match /autopilot/{jobId} {
+      allow read, write: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
+
+    // Client portal access
+    match /clientAccess/{accessId} {
+      allow read: if isAuthenticated();
+      allow write: if isAgencyOrAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read, update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated();
+    }
+  }
+}
