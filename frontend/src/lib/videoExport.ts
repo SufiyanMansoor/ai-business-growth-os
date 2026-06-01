@@ -1,9 +1,23 @@
+import {
+  type LoadedSceneAsset,
+  pauseAllAssets,
+  playSceneAsset,
+  preloadSceneAssets,
+} from './videoSceneAssets';
+
 export interface VideoScene {
   scene: number;
   description: string;
   duration: string;
   headline?: string;
   bullets?: string[];
+  visualTheme?: 'hook' | 'features' | 'benefits' | 'cta' | 'problem' | 'solution';
+  moduleId?: string;
+  moduleName?: string;
+  moduleIcon?: string;
+  moduleColor?: string;
+  stats?: { label: string; value: string }[];
+  isIntro?: boolean;
 }
 
 export interface RenderVideoOptions {
@@ -17,6 +31,7 @@ export interface RenderVideoOptions {
   hookLine?: string;
   fastMode?: boolean;
   onProgress?: (percent: number) => void;
+  onStage?: (stage: string) => void;
 }
 
 export interface RenderVideoResult {
@@ -28,8 +43,8 @@ export interface RenderVideoResult {
 function parseDurationMs(duration: string, fastMode: boolean): number {
   const match = duration.match(/(\d+(?:\.\d+)?)/);
   const seconds = match ? Number(match[1]) : 4;
-  const ms = Math.max(2, seconds) * 1000;
-  return fastMode ? Math.min(ms, 2500) : ms;
+  const ms = Math.max(3, seconds) * 1000;
+  return fastMode ? Math.min(ms, 3500) : ms;
 }
 
 function getVideoSize(format: string, fastMode: boolean) {
@@ -48,6 +63,15 @@ function getSupportedMimeType(): string {
     'video/mp4',
   ];
   return types.find((t) => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function easeOutBack(t: number): number {
+  const c = 1.70158;
+  return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2);
 }
 
 function wrapText(
@@ -76,112 +100,286 @@ function wrapText(
   return currentY;
 }
 
-function drawFrame(
+function drawCoverMedia(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  media: HTMLVideoElement | HTMLImageElement,
+  sceneProgress: number,
+  isImage: boolean
+) {
+  const mw = 'videoWidth' in media ? media.videoWidth : media.naturalWidth;
+  const mh = 'videoHeight' in media ? media.videoHeight : media.naturalHeight;
+  if (!mw || !mh) return;
+
+  const zoom = isImage ? 1 + sceneProgress * 0.12 : 1.05 + Math.sin(sceneProgress * Math.PI) * 0.03;
+  const scale = Math.max(width / mw, height / mh) * zoom;
+  const sw = mw * scale;
+  const sh = mh * scale;
+  const panX = isImage ? (sceneProgress - 0.5) * width * 0.06 : 0;
+  const x = (width - sw) / 2 + panX;
+  const y = (height - sh) / 2;
+
+  ctx.drawImage(media, x, y, sw, sh);
+}
+
+function drawGradientBg(ctx: CanvasRenderingContext2D, width: number, height: number, accent: string, t: number) {
+  const g = ctx.createLinearGradient(0, 0, width, height);
+  g.addColorStop(0, '#0a0a1a');
+  g.addColorStop(0.5, accent + '33');
+  g.addColorStop(1, '#0f172a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, width, height);
+
+  for (let i = 0; i < 8; i++) {
+    const px = (Math.sin(t * 0.8 + i * 1.4) * 0.5 + 0.5) * width;
+    const py = (Math.cos(t * 0.6 + i * 0.9) * 0.5 + 0.5) * height;
+    ctx.fillStyle = `rgba(99,102,241,${0.03 + i * 0.008})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 40 + i * 25, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawCinematicOverlay(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  visual: LoadedSceneAsset['visual'],
+  isVertical: boolean
+) {
+  const overlayH = isVertical ? height * 0.55 : height * 0.5;
+  const g = ctx.createLinearGradient(0, height - overlayH, 0, height);
+  g.addColorStop(0, visual.overlayFrom.replace(/[\d.]+\)$/, '0)'));
+  g.addColorStop(0.35, visual.overlayFrom);
+  g.addColorStop(1, visual.overlayTo);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, height - overlayH, width, overlayH);
+
+  const topG = ctx.createLinearGradient(0, 0, 0, isVertical ? 120 : 90);
+  topG.addColorStop(0, 'rgba(0,0,0,0.55)');
+  topG.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = topG;
+  ctx.fillRect(0, 0, width, isVertical ? 120 : 90);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.025)';
+  for (let i = 0; i < 300; i++) {
+    const gx = Math.random() * width;
+    const gy = Math.random() * height;
+    ctx.fillRect(gx, gy, 1, 1);
+  }
+}
+
+function drawBrandBadge(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  productName: string,
+  platform: string,
+  accent: string,
+  isVertical: boolean,
+  fadeIn: number
+) {
+  const pad = isVertical ? 24 : 36;
+  ctx.globalAlpha = fadeIn;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.1)';
+  roundRect(ctx, pad, pad, Math.min(width * 0.55, 200), isVertical ? 32 : 36, 8);
+  ctx.fill();
+
+  ctx.fillStyle = accent;
+  ctx.fillRect(pad + 10, pad + (isVertical ? 10 : 12), 3, isVertical ? 12 : 14);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${isVertical ? 13 : 15}px Inter, Arial, sans-serif`;
+  const name = productName.length > 22 ? `${productName.slice(0, 19)}...` : productName;
+  ctx.fillText(name, pad + 20, pad + (isVertical ? 22 : 26));
+
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = `${isVertical ? 9 : 10}px Inter, Arial, sans-serif`;
+  ctx.fillText(platform.toUpperCase(), pad + 20, pad + (isVertical ? 30 : 34));
+
+  ctx.globalAlpha = 1;
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawAnimatedText(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   data: {
     scene: VideoScene;
+    hookLine: string;
+    sceneProgress: number;
+    accent: string;
+    isVertical: boolean;
+    website: string;
+  }
+) {
+  const { scene, hookLine, sceneProgress, accent, isVertical, website } = data;
+  const pad = isVertical ? 28 : 48;
+  const textW = width - pad * 2;
+  const headline = scene.headline || hookLine;
+
+  const enterT = easeOutBack(Math.min(1, sceneProgress / 0.25));
+  const textY = height - (isVertical ? 280 : 200);
+  const slideOffset = (1 - enterT) * 40;
+
+  if (headline) {
+    ctx.globalAlpha = enterT;
+    ctx.fillStyle = accent;
+    ctx.font = `600 ${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
+    ctx.fillText('▸ AI GENERATED', pad, textY + slideOffset);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${isVertical ? 22 : 32}px Inter, Arial, sans-serif`;
+    wrapText(ctx, headline, pad, textY + 28 + slideOffset, textW, isVertical ? 28 : 38);
+    ctx.globalAlpha = 1;
+  }
+
+  const descT = easeOutCubic(Math.min(1, Math.max(0, (sceneProgress - 0.15) / 0.3)));
+  if (descT > 0 && scene.description) {
+    ctx.globalAlpha = descT;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = `${isVertical ? 13 : 16}px Inter, Arial, sans-serif`;
+    wrapText(ctx, scene.description, pad, textY + (isVertical ? 90 : 110) + slideOffset * 0.5, textW, isVertical ? 20 : 24);
+    ctx.globalAlpha = 1;
+  }
+
+  if (scene.bullets?.length) {
+    const bulletStart = textY + (isVertical ? 140 : 170);
+    const maxBullets = isVertical ? 3 : 4;
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    const panelH = Math.min(maxBullets, scene.bullets.length) * (isVertical ? 28 : 32) + 20;
+    roundRect(ctx, pad - 8, bulletStart - 12, textW + 16, panelH, 12);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    for (let b = 0; b < Math.min(maxBullets, scene.bullets.length); b++) {
+      const bt = easeOutCubic(Math.min(1, Math.max(0, (sceneProgress - 0.25 - b * 0.08) / 0.25)));
+      if (bt <= 0) continue;
+      ctx.globalAlpha = bt;
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.arc(pad + 6, bulletStart + b * (isVertical ? 28 : 32) + 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
+      const txt = scene.bullets[b].length > 50 ? `${scene.bullets[b].slice(0, 47)}...` : scene.bullets[b];
+      ctx.fillText(txt, pad + 16, bulletStart + b * (isVertical ? 28 : 32) + 8);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  const ctaT = easeOutCubic(Math.min(1, Math.max(0, (sceneProgress - 0.6) / 0.3)));
+  if (ctaT > 0 && website) {
+    ctx.globalAlpha = ctaT;
+    const btnY = height - (isVertical ? 52 : 44);
+    ctx.fillStyle = accent;
+    roundRect(ctx, pad, btnY, Math.min(textW, 280), isVertical ? 34 : 38, 19);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
+    const web = website.length > 38 ? `${website.slice(0, 35)}...` : website;
+    ctx.fillText(`→ ${web}`, pad + 14, btnY + (isVertical ? 22 : 25));
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawProgressBar(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  sceneIndex: number,
+  totalScenes: number,
+  sceneProgress: number,
+  accent: string,
+  isVertical: boolean
+) {
+  const pad = isVertical ? 24 : 36;
+  const barY = height - (isVertical ? 14 : 12);
+  const barW = width - pad * 2;
+  const overall = (sceneIndex + sceneProgress) / totalScenes;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(pad, barY, barW, 3);
+  ctx.fillStyle = accent;
+  ctx.fillRect(pad, barY, barW * overall, 3);
+}
+
+function drawFrame(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  assets: LoadedSceneAsset[],
+  data: {
+    scene: VideoScene;
     platform: string;
     productName: string;
-    tagline: string;
-    website: string;
     hookLine: string;
+    website: string;
     sceneIndex: number;
     totalScenes: number;
     sceneProgress: number;
     globalTime: number;
+    prevSceneIndex: number;
+    transitionProgress: number;
   }
 ) {
-  const { scene, platform, productName, tagline, website, hookLine, sceneIndex, totalScenes, sceneProgress, globalTime } = data;
+  const { scene, platform, productName, hookLine, website, sceneIndex, totalScenes, sceneProgress, globalTime, prevSceneIndex, transitionProgress } = data;
   const isVertical = height > width;
-  const padding = isVertical ? 36 : 52;
-  const fade = sceneProgress < 0.12 ? sceneProgress / 0.12 : sceneProgress > 0.88 ? (1 - sceneProgress) / 0.12 : 1;
-  const pulse = 0.5 + Math.sin(globalTime * 3) * 0.05;
-  const headline = scene.headline || hookLine;
+  const asset = assets[sceneIndex];
+  const prevAsset = prevSceneIndex >= 0 ? assets[prevSceneIndex] : null;
+  const accent = asset.visual.accent;
 
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, '#0f0c29');
-  gradient.addColorStop(0.4, '#302b63');
-  gradient.addColorStop(1, '#24243e');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
+  ctx.clearRect(0, 0, width, height);
 
-  for (let i = 0; i < 6; i++) {
-    const x = (Math.sin(globalTime + i * 1.2) * 0.5 + 0.5) * width;
-    const y = (Math.cos(globalTime * 0.7 + i) * 0.5 + 0.5) * height;
-    ctx.fillStyle = `rgba(99,102,241,${0.04 + i * 0.01})`;
-    ctx.beginPath();
-    ctx.arc(x, y, 30 + i * 18, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.fillStyle = `rgba(99,102,241,${0.4 * pulse})`;
-  ctx.fillRect(0, 0, width, isVertical ? 96 : 68);
-
-  ctx.globalAlpha = fade;
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${isVertical ? 18 : 24}px Inter, Arial, sans-serif`;
-  const brandShort = productName.length > 28 ? `${productName.slice(0, 25)}...` : productName;
-  ctx.fillText(brandShort, padding, isVertical ? 40 : 36);
-
-  ctx.fillStyle = '#c4b5fd';
-  ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
-  wrapText(ctx, `${platform.toUpperCase()} • ${tagline}`, padding, isVertical ? 62 : 56, width - padding * 2, isVertical ? 16 : 18);
-
-  ctx.fillStyle = '#6366f1';
-  ctx.fillRect(padding, isVertical ? 82 : 68, 50 * pulse, 3);
-
-  ctx.fillStyle = '#a5b4fc';
-  ctx.font = `600 ${isVertical ? 12 : 14}px Inter, Arial, sans-serif`;
-  ctx.fillText(`Scene ${scene.scene} / ${totalScenes}`, padding, isVertical ? 108 : 88);
-
-  let yPos = isVertical ? 130 : 112;
-
-  if (headline) {
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = `bold ${isVertical ? 14 : 17}px Inter, Arial, sans-serif`;
-    yPos = wrapText(ctx, headline, padding, yPos, width - padding * 2, isVertical ? 20 : 24) + (isVertical ? 14 : 18);
-  }
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${isVertical ? 16 : 22}px Inter, Arial, sans-serif`;
-  yPos = wrapText(ctx, scene.description, padding, yPos, width - padding * 2, isVertical ? 24 : 30) + (isVertical ? 10 : 14);
-
-  if (scene.bullets?.length) {
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = `${isVertical ? 11 : 13}px Inter, Arial, sans-serif`;
-    const maxBullets = isVertical ? 3 : 4;
-    for (let b = 0; b < Math.min(maxBullets, scene.bullets.length); b++) {
-      const bullet = scene.bullets[b];
-      const bulletText = bullet.length > 55 ? `${bullet.slice(0, 52)}...` : bullet;
-      yPos = wrapText(ctx, `✓ ${bulletText}`, padding + 4, yPos, width - padding * 2 - 8, isVertical ? 18 : 22) + (isVertical ? 6 : 8);
+  const drawAsset = (a: LoadedSceneAsset, progress: number, alpha: number) => {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    if (a.type === 'video' && a.video && a.video.readyState >= 2) {
+      drawCoverMedia(ctx, width, height, a.video, progress, false);
+    } else if (a.type === 'image' && a.image) {
+      drawCoverMedia(ctx, width, height, a.image, progress, true);
+    } else {
+      drawGradientBg(ctx, width, height, a.visual.accent, globalTime);
     }
+    ctx.restore();
+  };
+
+  if (transitionProgress > 0 && prevAsset && prevSceneIndex !== sceneIndex) {
+    drawAsset(prevAsset, 1, 1 - transitionProgress);
   }
+  drawAsset(asset, sceneProgress, transitionProgress > 0 && prevAsset ? transitionProgress : 1);
 
-  if (website) {
-    ctx.fillStyle = 'rgba(148,163,184,0.9)';
-    ctx.font = `${isVertical ? 10 : 12}px Inter, Arial, sans-serif`;
-    const webShort = website.length > 42 ? `${website.slice(0, 39)}...` : website;
-    ctx.fillText(webShort, padding, height - (isVertical ? 48 : 36));
-  }
+  drawCinematicOverlay(ctx, width, height, asset.visual, isVertical);
 
-  const barY = height - (isVertical ? 24 : 18);
-  const barW = width - padding * 2;
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  ctx.fillRect(padding, barY, barW, 5);
-  ctx.fillStyle = '#6366f1';
-  ctx.fillRect(padding, barY, barW * ((sceneIndex + sceneProgress) / totalScenes), 5);
-
-  ctx.fillStyle = '#94a3b8';
-  ctx.font = `${isVertical ? 10 : 12}px Inter, Arial, sans-serif`;
-  ctx.fillText(scene.duration, width - padding - 24, barY - 5);
-
-  ctx.globalAlpha = 1;
+  const fadeIn = easeOutCubic(Math.min(1, sceneProgress / 0.2));
+  drawBrandBadge(ctx, width, productName, platform, accent, isVertical, fadeIn);
+  drawAnimatedText(ctx, width, height, { scene, hookLine, sceneProgress, accent, isVertical, website });
+  drawProgressBar(ctx, width, height, sceneIndex, totalScenes, sceneProgress, accent, isVertical);
 }
 
 function waitFrame() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function delay(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export async function renderStoryboardVideo(options: RenderVideoOptions): Promise<RenderVideoResult> {
@@ -190,14 +388,18 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
     platform,
     format,
     productName = 'Your Product',
-    tagline = 'Marketing Video',
     source = '',
     hookLine = '',
     fastMode = false,
     onProgress,
+    onStage,
   } = options;
 
   if (!scenes.length) throw new Error('No storyboard scenes to render');
+
+  onStage?.('Downloading AI visuals & stock footage...');
+  const assets = await preloadSceneAssets(scenes, (pct) => onProgress?.(Math.round(pct * 0.15)));
+  onProgress?.(15);
 
   const { width, height } = getVideoSize(format, fastMode);
   const canvas = document.createElement('canvas');
@@ -209,18 +411,21 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
   const ctx = canvas.getContext('2d', { alpha: false });
   if (!ctx) {
     document.body.removeChild(canvas);
+    pauseAllAssets(assets);
     throw new Error('Canvas not supported');
   }
 
   const mimeType = getSupportedMimeType();
   const extension: 'mp4' | 'webm' = mimeType.includes('mp4') ? 'mp4' : 'webm';
-  const stream = canvas.captureStream(fastMode ? 24 : 30);
+  const fps = fastMode ? 24 : 30;
+  const stream = canvas.captureStream(fps);
 
   let recorder: MediaRecorder;
   try {
-    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: fastMode ? 1_500_000 : 2_500_000 });
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: fastMode ? 2_500_000 : 4_000_000 });
   } catch {
     document.body.removeChild(canvas);
+    pauseAllAssets(assets);
     throw new Error('Video recording not supported in this browser. Use Chrome.');
   }
 
@@ -238,13 +443,15 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
     recorder.onerror = () => reject(new Error('Recording failed'));
   });
 
+  onStage?.('Rendering cinematic AI video...');
   recorder.start(250);
-  onProgress?.(5);
+  onProgress?.(18);
 
   const sceneDurations = scenes.map((s) => parseDurationMs(s.duration, fastMode));
   const totalDuration = sceneDurations.reduce((a, b) => a + b, 0);
   const startTime = performance.now();
-  let lastProgress = 5;
+  let lastProgress = 18;
+  let lastSceneIndex = -1;
 
   while (true) {
     const elapsed = performance.now() - startTime;
@@ -262,20 +469,30 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
       acc += sceneDurations[i];
     }
 
-    drawFrame(ctx, width, height, {
+    if (sceneIndex !== lastSceneIndex) {
+      pauseAllAssets(assets);
+      playSceneAsset(assets[sceneIndex]);
+      lastSceneIndex = sceneIndex;
+    }
+
+    const transitionProgress = sceneProgress < 0.18 ? easeOutCubic(sceneProgress / 0.18) : 1;
+    const prevSceneIndex = sceneProgress < 0.18 && sceneIndex > 0 ? sceneIndex - 1 : sceneIndex;
+
+    drawFrame(ctx, width, height, assets, {
       scene: scenes[sceneIndex],
       platform,
       productName,
-      tagline,
-      website: source,
       hookLine,
+      website: source,
       sceneIndex,
       totalScenes: scenes.length,
       sceneProgress,
       globalTime: elapsed / 1000,
+      prevSceneIndex,
+      transitionProgress,
     });
 
-    const pct = Math.min(99, Math.round(5 + (elapsed / totalDuration) * 94));
+    const pct = Math.min(99, Math.round(18 + (elapsed / totalDuration) * 81));
     if (pct > lastProgress) {
       lastProgress = pct;
       onProgress?.(pct);
@@ -283,34 +500,33 @@ export async function renderStoryboardVideo(options: RenderVideoOptions): Promis
     await waitFrame();
   }
 
-  drawFrame(ctx, width, height, {
+  drawFrame(ctx, width, height, assets, {
     scene: scenes[scenes.length - 1],
     platform,
     productName,
-    tagline,
-    website: source,
     hookLine,
+    website: source,
     sceneIndex: scenes.length - 1,
     totalScenes: scenes.length,
     sceneProgress: 1,
     globalTime: totalDuration / 1000,
+    prevSceneIndex: scenes.length - 1,
+    transitionProgress: 1,
   });
 
-  await delay(400);
+  await delay(500);
   if (recorder.state === 'recording') recorder.requestData();
   recorder.stop();
 
   try {
     const blob = await recorded;
     onProgress?.(100);
+    onStage?.('Video ready!');
     return { blob, extension, mimeType };
   } finally {
+    pauseAllAssets(assets);
     document.body.removeChild(canvas);
   }
-}
-
-function delay(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 export function downloadVideoFile(blob: Blob, filename: string) {

@@ -6,6 +6,7 @@ import AuthProvider from '@/components/AuthProvider';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { LoadingState } from '@/components/ui/States';
+import { ToastProvider } from '@/components/ui/ToastProvider';
 
 const LoginPage = lazy(() => import('@/pages/auth/LoginPage'));
 const RegisterPage = lazy(() => import('@/pages/auth/RegisterPage'));
@@ -35,9 +36,10 @@ export default function App() {
   return (
     <Provider store={store}>
       <AuthProvider>
-        <BrowserRouter basename={import.meta.env.BASE_URL}>
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
+        <ToastProvider>
+          <BrowserRouter basename={import.meta.env.BASE_URL}>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -56,16 +58,26 @@ export default function App() {
                 <Route path="/seo" element={<SEOPage />} />
                 <Route path="/competitor" element={<CompetitorPage />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/autopilot" element={<AutopilotPage />} />
-                <Route path="/reports" element={<ReportsPage />} />
+                <Route
+                  path="/autopilot"
+                  element={<ProtectedRoute allowedRoles={['owner', 'admin', 'manager', 'agency']}><AutopilotPage /></ProtectedRoute>}
+                />
+                <Route
+                  path="/reports"
+                  element={<ProtectedRoute allowedRoles={['owner', 'admin', 'manager', 'agency', 'client']}><ReportsPage /></ProtectedRoute>}
+                />
                 <Route path="/client-portal" element={<ClientPortalPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
+                <Route
+                  path="/settings"
+                  element={<ProtectedRoute allowedRoles={['owner', 'admin']}><SettingsPage /></ProtectedRoute>}
+                />
               </Route>
 
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </Provider>
   );

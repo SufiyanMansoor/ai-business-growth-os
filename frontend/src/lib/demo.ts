@@ -7,6 +7,8 @@ export const DEMO_USER: UserProfile = {
   email: 'demo@aigrowthos.com',
   displayName: 'Demo User',
   role: 'agency',
+  tenantId: 'tenant-demo-agency',
+  tenantName: 'Demo Marketing Agency',
   company: 'Demo Marketing Agency',
   industry: 'marketing',
   createdAt: new Date().toISOString(),

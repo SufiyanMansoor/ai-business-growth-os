@@ -6,7 +6,10 @@ import { disableDemoMode } from '@/lib/demo';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { logout } from '@/store/slices/authSlice';
 import { markNotificationRead } from '@/store/slices/dashboardSlice';
+import { setActiveTenant } from '@/store/slices/tenantSlice';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
+import Select from '@/components/ui/Select';
+import { ROLE_LABELS } from '@/lib/rbac';
 
 export default function Navbar() {
   const dispatch = useAppDispatch();
@@ -15,6 +18,8 @@ export default function Navbar() {
   const isDemoMode = useAppSelector((s) => s.auth.isDemoMode);
   const notifications = useAppSelector((s) => s.dashboard.notifications);
   const sidebarOpen = useAppSelector((s) => s.dashboard.sidebarOpen);
+  const tenants = useAppSelector((s) => s.tenant.tenants);
+  const activeTenantId = useAppSelector((s) => s.tenant.activeTenantId);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const handleLogout = async () => {
@@ -51,6 +56,16 @@ export default function Navbar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {tenants.length > 1 && (
+          <div className="w-44 hidden md:block">
+            <Select
+              aria-label="Workspace"
+              options={tenants.map((tenant) => ({ value: tenant.id, label: tenant.name }))}
+              value={activeTenantId || undefined}
+              onChange={(e) => dispatch(setActiveTenant(e.target.value))}
+            />
+          </div>
+        )}
         <ThemeSwitcher />
 
         <div className="relative group">
@@ -92,7 +107,7 @@ export default function Navbar() {
           <div className="hidden md:block">
             <p className="text-sm font-medium">{user?.displayName || 'User'}</p>
             <p className="text-xs capitalize" style={{ color: 'var(--text-muted)' }}>
-              {isDemoMode ? 'demo' : user?.role}
+              {isDemoMode ? 'demo' : (user?.role ? ROLE_LABELS[user.role] : 'User')}
             </p>
           </div>
           <button onClick={handleLogout} className="p-2 rounded-xl hover:bg-[var(--card-bg-hover)] transition-colors ml-1"

@@ -2,6 +2,21 @@ import { getDemoResponse, shouldUseClientDemo } from './demoResponses';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+type PaginationParams = {
+  limit?: number;
+  before?: string;
+};
+
+function withPagination(endpoint: string, params?: PaginationParams): string {
+  if (!params) return endpoint;
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', String(params.limit));
+  if (params.before) query.set('before', params.before);
+  const queryString = query.toString();
+  if (!queryString) return endpoint;
+  return `${endpoint}?${queryString}`;
+}
+
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -13,11 +28,13 @@ async function request<T>(
   }
 
   const token = localStorage.getItem('authToken');
+  const activeTenantId = localStorage.getItem('activeTenantId');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (activeTenantId) headers['X-Tenant-Id'] = activeTenantId;
 
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
@@ -29,6 +46,10 @@ async function request<T>(
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/pdf')) {
+    return response.blob() as Promise<T>;
+  }
   return response.json();
 }
 
@@ -82,17 +103,40 @@ export const startAutopilot = (data: { goal: string; budget: number; industry: s
   api.post('/ai/autopilot', data);
 
 // CRM
-export const getLeads = () => api.get('/crm/leads');
+export const getLeads = (params?: PaginationParams) => api.get(withPagination('/crm/leads', params));
 export const createLead = (data: unknown) => api.post('/crm/leads', data);
 export const updateLead = (id: string, data: unknown) => api.put(`/crm/leads/${id}`, data);
 
 // Campaigns
-export const getCampaigns = () => api.get('/campaigns');
+export const getCampaigns = (params?: PaginationParams) => api.get(withPagination('/campaigns', params));
 export const createCampaignRecord = (data: unknown) => api.post('/campaigns', data);
 
 // Reports
 export const generateReport = (data: { type: string; campaignId?: string }) =>
   api.post('/reports/generate', data);
+export const getReportHistory = (params?: PaginationParams) =>
+  api.get(withPagination('/reports/history', params));
+
+// Content Scheduler
+export const getContentItems = (params?: PaginationParams) =>
+  api.get(withPagination('/content', params));
+export const createContentItem = (data: unknown) => api.post('/content', data);
+
+// Outreach storage
+export const getOutreachRecords = (params?: PaginationParams) =>
+  api.get(withPagination('/outreach', params));
+export const createOutreachRecord = (data: unknown) => api.post('/outreach', data);
+
+// Influencer tracking
+export const getInfluencerRecords = (params?: PaginationParams) =>
+  api.get(withPagination('/influencers', params));
+export const createInfluencerRecord = (data: unknown) => api.post('/influencers', data);
+
+// Autopilot run history
+export const getAutopilotRuns = (params?: PaginationParams) =>
+  api.get(withPagination('/autopilot/runs', params));
+export const createAutopilotRun = (data: unknown) => api.post('/autopilot/runs', data);
+export const updateAutopilotRun = (id: string, data: unknown) => api.put(`/autopilot/runs/${id}`, data);
 
 // Translation
 export const translateContent = (data: { text: string; targetLanguage: string }) =>

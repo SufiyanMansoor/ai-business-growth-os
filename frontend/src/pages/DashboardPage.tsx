@@ -8,6 +8,8 @@ import {
 import StatCard from '@/components/ui/StatCard';
 import GlassCard from '@/components/ui/GlassCard';
 import ModuleLayout from '@/components/ui/ModuleLayout';
+import { useAppSelector } from '@/store/hooks';
+import { DEMO_WIDGETS_BY_TENANT } from '@/lib/demoTenantSeed';
 
 const revenueData = [
   { month: 'Jan', revenue: 4200, leads: 120 },
@@ -51,16 +53,41 @@ const activityFeed = [
 ];
 
 export default function DashboardPage() {
+  const activeTenantId = useAppSelector((s) => s.tenant.activeTenantId) || 'tenant-demo-agency';
+  const widgets = DEMO_WIDGETS_BY_TENANT[activeTenantId] || DEMO_WIDGETS_BY_TENANT['tenant-demo-agency'];
+
+  const widgetIconMap = {
+    revenue: DollarSign,
+    campaigns: Megaphone,
+    leads: Target,
+    engagement: Heart,
+  };
+
   return (
     <ModuleLayout
       title="Dashboard"
       description="Your business growth command center"
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Revenue" value="$15,800" change="+24.5% vs last month" changeType="positive" icon={DollarSign} />
-        <StatCard title="Active Campaigns" value="12" change="4 launching this week" changeType="neutral" icon={Megaphone} iconColor="var(--accent-color)" />
-        <StatCard title="Total Leads" value="520" change="+38% this month" changeType="positive" icon={Target} iconColor="var(--success)" />
-        <StatCard title="Engagement Rate" value="6.2%" change="+1.4% improvement" changeType="positive" icon={Heart} iconColor="var(--warning)" />
+        {widgets.map((widget) => (
+          <StatCard
+            key={widget.id}
+            title={widget.title}
+            value={widget.value}
+            change={widget.change}
+            changeType={widget.changeType}
+            icon={widgetIconMap[widget.icon]}
+            iconColor={
+              widget.icon === 'campaigns'
+                ? 'var(--accent-color)'
+                : widget.icon === 'leads'
+                  ? 'var(--success)'
+                  : widget.icon === 'engagement'
+                    ? 'var(--warning)'
+                    : undefined
+            }
+          />
+        ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

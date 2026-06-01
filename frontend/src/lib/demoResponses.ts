@@ -97,7 +97,7 @@ export function getDemoResponse(endpoint: string, method: string, body: DemoBody
     return {
       ...content,
       outputs: DEFAULT_VIDEO_OUTPUTS,
-      captions: { enabled: true, languages: ['English', 'Urdu', 'Arabic'] },
+      captions: { enabled: true, languages: ['English', 'Urdu', 'Arabic', 'Hindi'] },
     };
   }
 

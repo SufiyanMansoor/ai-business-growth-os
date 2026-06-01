@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { toggleSidebar } from '@/store/slices/dashboardSlice';
+import { canAccessRoute, type AppRoute } from '@/lib/rbac';
 
 const navItems = [
   { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -30,6 +31,11 @@ const navItems = [
 export default function Sidebar() {
   const dispatch = useAppDispatch();
   const sidebarOpen = useAppSelector((s) => s.dashboard.sidebarOpen);
+  const role = useAppSelector((s) => s.auth.user?.role);
+  const activeTenant = useAppSelector((s) =>
+    s.tenant.tenants.find((tenant) => tenant.id === s.tenant.activeTenantId)
+  );
+  const visibleNavItems = navItems.filter((item) => canAccessRoute(role, item.path as AppRoute));
 
   return (
     <aside
@@ -49,13 +55,15 @@ export default function Sidebar() {
         {sidebarOpen && (
           <div className="min-w-0">
             <h1 className="font-display font-bold text-sm truncate">AI Growth OS</h1>
-            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>Marketing Studio</p>
+            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+              {activeTenant?.name || 'Marketing Studio'}
+            </p>
           </div>
         )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-        {navItems.map(({ path, icon: Icon, label }) => (
+        {visibleNavItems.map(({ path, icon: Icon, label }) => (
           <NavLink
             key={path}
             to={path}

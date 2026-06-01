@@ -1,7 +1,16 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { DEMO_USER, isDemoModeActive } from '@/lib/demo';
 
-export type UserRole = 'admin' | 'agency' | 'client' | 'influencer';
+export type UserRole =
+  | 'owner'
+  | 'admin'
+  | 'manager'
+  | 'sales'
+  | 'marketing'
+  | 'viewer'
+  | 'agency'
+  | 'client'
+  | 'influencer';
 
 export interface UserProfile {
   uid: string;
@@ -9,6 +18,8 @@ export interface UserProfile {
   displayName: string;
   photoURL?: string;
   role: UserRole;
+  tenantId?: string;
+  tenantName?: string;
   company?: string;
   industry?: string;
   createdAt: string;

@@ -12,7 +12,9 @@ const userSchema = {
   email: 'string',
   displayName: 'string',
   photoURL: 'string | null',
-  role: 'admin | agency | client | influencer',
+  role: 'owner | admin | manager | sales | marketing | viewer | agency | client | influencer',
+  tenantId: 'string',
+  tenantName: 'string',
   company: 'string | null',
   industry: 'string | null',
   theme: 'dark | light | neon | corporate | viral',
@@ -34,6 +36,7 @@ const userSchema = {
 // ============================================
 const campaignSchema = {
   userId: 'string',
+  tenantId: 'string',
   clientId: 'string | null',
   name: 'string',
   type: 'one-click | autopilot | manual',
@@ -67,6 +70,7 @@ const campaignSchema = {
 // ============================================
 const leadSchema = {
   userId: 'string',
+  tenantId: 'string',
   company: 'string',
   website: 'string',
   email: 'string',
@@ -91,6 +95,7 @@ const leadSchema = {
 // ============================================
 const contentSchema = {
   userId: 'string',
+  tenantId: 'string',
   campaignId: 'string | null',
   platform: 'instagram | facebook | linkedin | tiktok | twitter',
   type: 'post | reel | story | video | email',
@@ -113,6 +118,7 @@ const contentSchema = {
 // influencers/{influencerId}
 // ============================================
 const influencerSchema = {
+  tenantId: 'string',
   name: 'string',
   handle: 'string',
   platform: 'string',
@@ -132,6 +138,7 @@ const influencerSchema = {
 // ============================================
 const outreachSchema = {
   userId: 'string',
+  tenantId: 'string',
   type: 'email | whatsapp | sponsorship',
   target: 'string',
   targetEmail: 'string | null',
@@ -156,6 +163,7 @@ const outreachSchema = {
 // ============================================
 const reportSchema = {
   userId: 'string',
+  tenantId: 'string',
   clientId: 'string | null',
   type: 'campaign | roi | leads | social | custom',
   format: 'pdf | excel | json',
@@ -170,6 +178,7 @@ const reportSchema = {
 // ============================================
 const autopilotSchema = {
   userId: 'string',
+  tenantId: 'string',
   goal: 'sales | leads | followers',
   budget: 'number',
   industry: 'string',
@@ -196,6 +205,7 @@ const autopilotSchema = {
 // ============================================
 const analyticsSchema = {
   userId: 'string',
+  tenantId: 'string',
   campaignId: 'string | null',
   event: 'string',
   data: 'object',
@@ -207,6 +217,7 @@ const analyticsSchema = {
 // ============================================
 const notificationSchema = {
   userId: 'string',
+  tenantId: 'string',
   title: 'string',
   message: 'string',
   type: 'info | success | warning | error',

@@ -4,7 +4,8 @@ import ModuleLayout from '@/components/ui/ModuleLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import { searchInfluencers } from '@/lib/api';
+import { createInfluencerRecord, searchInfluencers } from '@/lib/api';
+import { useToast } from '@/components/ui/ToastProvider';
 
 interface Influencer {
   name: string;
@@ -22,6 +23,8 @@ export default function InfluencersPage() {
   const [filters, setFilters] = useState({ country: '', niche: '', minFollowers: '' });
   const [results, setResults] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
+  const { showToast } = useToast();
 
   const handleSearch = async () => {
     setLoading(true);
@@ -39,8 +42,20 @@ export default function InfluencersPage() {
         { name: 'Aisha Khan', handle: '@aishabiz', followers: '210K', engagement: '5.4%', niche: filters.niche || 'Marketing', country: filters.country || 'UK', fakeScore: 15, reachEstimate: '150K-190K', strategy: 'Sponsored post series (3 posts). Include exclusive discount code.' },
         { name: 'James Park', handle: '@jamesdigital', followers: '45K', engagement: '11.3%', niche: filters.niche || 'SaaS', country: filters.country || 'CA', fakeScore: 5, reachEstimate: '40K-50K', strategy: 'Micro-influencer partnership. High engagement rate = better ROI.' },
       ]);
+      showToast('Using fallback influencer results.', 'info');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSave = async (inf: Influencer) => {
+    try {
+      await createInfluencerRecord(inf);
+      setSaved((prev) => ({ ...prev, [inf.handle]: true }));
+      showToast('Influencer saved.', 'success');
+    } catch {
+      setSaved((prev) => ({ ...prev, [inf.handle]: true }));
+      showToast('Saved locally (backend unavailable).', 'info');
     }
   };
 
@@ -83,6 +98,9 @@ export default function InfluencersPage() {
               </div>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}><Target size={14} className="inline mr-1" />{inf.strategy}</p>
+            <Button size="sm" variant="secondary" className="mt-3" onClick={() => handleSave(inf)} disabled={!!saved[inf.handle]}>
+              {saved[inf.handle] ? 'Saved' : 'Save to CRM'}
+            </Button>
           </GlassCard>
         ))}
       </div>

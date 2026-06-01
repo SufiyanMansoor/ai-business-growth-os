@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Bot, Zap, CheckCircle, Loader } from 'lucide-react';
 import ModuleLayout from '@/components/ui/ModuleLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
 import Input from '@/components/ui/Input';
-import { startAutopilot } from '@/lib/api';
+import { createAutopilotRun, getAutopilotRuns, startAutopilot, updateAutopilotRun } from '@/lib/api';
+import { useToast } from '@/components/ui/ToastProvider';
 
 const autopilotSteps = [
   { id: 1, label: 'Analyzing business & setting strategy', status: 'pending' },
@@ -21,14 +22,58 @@ export default function AutopilotPage() {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState(autopilotSteps);
   const [completed, setCompleted] = useState(false);
+  const [runHistory, setRunHistory] = useState<Array<{ id: string; goal: string; budget: number; status: string; createdAt: string }>>([]);
+  const [runsCursor, setRunsCursor] = useState<string | null>(null);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    getAutopilotRuns({ limit: 5 })
+      .then((data) => {
+        const payload = data as {
+          runs?: Array<{ id: string; goal: string; budget: number; status: string; createdAt: string }>;
+          nextCursor?: string | null;
+        };
+        setRunHistory(payload.runs || []);
+        setRunsCursor(payload.nextCursor || null);
+      })
+      .catch(() => showToast('Unable to load run history.', 'error'));
+  }, [showToast]);
+
+  const handleLoadMoreRuns = async () => {
+    if (!runsCursor || loadingMoreRuns) return;
+    setLoadingMoreRuns(true);
+    try {
+      const data = await getAutopilotRuns({ limit: 5, before: runsCursor });
+      const payload = data as {
+        runs?: Array<{ id: string; goal: string; budget: number; status: string; createdAt: string }>;
+        nextCursor?: string | null;
+      };
+      setRunHistory((prev) => [...prev, ...(payload.runs || [])]);
+      setRunsCursor(payload.nextCursor || null);
+    } catch {
+      showToast('Unable to load more runs.', 'error');
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  };
 
   const handleStart = async () => {
     setRunning(true);
     setCompleted(false);
     setSteps(autopilotSteps.map((s) => ({ ...s, status: 'pending' })));
 
+    let runId = '';
     try {
       await startAutopilot({ goal: config.goal, budget: parseInt(config.budget), industry: config.industry });
+      const run = await createAutopilotRun({
+        goal: config.goal,
+        budget: parseInt(config.budget),
+        industry: config.industry,
+      });
+      const savedRun = run as { id: string; goal: string; budget: number; status: string; createdAt: string };
+      runId = savedRun.id;
+      setRunHistory((prev) => [savedRun, ...prev]);
     } catch { /* demo mode */ }
 
     for (let i = 0; i < autopilotSteps.length; i++) {
@@ -45,6 +90,16 @@ export default function AutopilotPage() {
 
     setRunning(false);
     setCompleted(true);
+    if (runId) {
+      try {
+        const updated = await updateAutopilotRun(runId, { status: 'completed' });
+        const row = updated as { id: string; goal: string; budget: number; status: string; createdAt: string };
+        setRunHistory((prev) => prev.map((item) => (item.id === row.id ? row : item)));
+        showToast('Autopilot run completed and saved.', 'success');
+      } catch {
+        showToast('Autopilot completed, but status sync failed.', 'error');
+      }
+    }
   };
 
   return (
@@ -114,6 +169,26 @@ export default function AutopilotPage() {
                 <p className="text-white/80 mt-2">Your campaigns are live. AI will continue optimizing automatically.</p>
               </div>
             )}
+
+            <div className="mt-8">
+              <h4 className="font-semibold mb-3">Recent Autopilot Runs</h4>
+              <div className="space-y-2">
+                {runHistory.map((run) => (
+                  <div key={run.id} className="p-3 rounded-xl text-sm flex items-center justify-between" style={{ background: 'var(--bg-secondary)' }}>
+                    <span>{run.goal} • ${run.budget}</span>
+                    <span className={`badge ${run.status === 'completed' ? 'badge-success' : 'badge-warning'}`}>{run.status}</span>
+                  </div>
+                ))}
+                {!runHistory.length && (
+                  <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No runs yet.</p>
+                )}
+                {runsCursor && (
+                  <Button variant="secondary" size="sm" onClick={handleLoadMoreRuns} loading={loadingMoreRuns}>
+                    Load more
+                  </Button>
+                )}
+              </div>
+            </div>
           </GlassCard>
         </div>
       </div>

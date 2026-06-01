@@ -9,6 +9,11 @@ import crmRoutes from './routes/crm.js';
 import campaignRoutes from './routes/campaigns.js';
 import analyticsRoutes from './routes/analytics.js';
 import reportRoutes from './routes/reports.js';
+import contentRoutes from './routes/content.js';
+import outreachRoutes from './routes/outreach.js';
+import influencerRoutes from './routes/influencers.js';
+import autopilotRoutes from './routes/autopilot.js';
+import tenantAuth from './middleware/tenantAuth.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,11 +44,21 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', service: 'AI Business Growth OS API', version: '1.0.0' });
 });
 
+// All API calls (except health) require Firebase auth + tenant context.
+app.use('/api', (req, res, next) => {
+  if (req.path === '/health') return next();
+  return tenantAuth(req, res, next);
+});
+
 app.use('/api/ai', aiRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/content', contentRoutes);
+app.use('/api/outreach', outreachRoutes);
+app.use('/api/influencers', influencerRoutes);
+app.use('/api/autopilot', autopilotRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err.stack);

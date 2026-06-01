@@ -14,10 +14,15 @@ import ThemeSwitcher from '@/components/ThemeSwitcher';
 import { Sparkles, Play } from 'lucide-react';
 
 const roleOptions = [
+  { value: 'owner', label: 'Owner' },
+  { value: 'admin', label: 'Administrator' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'sales', label: 'Sales Team' },
+  { value: 'marketing', label: 'Marketing Team' },
   { value: 'client', label: 'Client / Business Owner' },
   { value: 'agency', label: 'Marketing Agency' },
   { value: 'influencer', label: 'Influencer / Creator' },
-  { value: 'admin', label: 'Administrator' },
+  { value: 'viewer', label: 'Viewer' },
 ];
 
 export default function RegisterPage() {
@@ -26,7 +31,7 @@ export default function RegisterPage() {
     email: '',
     password: '',
     company: '',
-    role: 'client' as UserRole,
+    role: 'owner' as UserRole,
   });
   const [loading, setLoading] = useState(false);
   const dispatch = useAppDispatch();
@@ -45,17 +50,40 @@ export default function RegisterPage() {
       const { user } = await createUserWithEmailAndPassword(auth, form.email, form.password);
       await updateProfile(user, { displayName: form.name });
 
+      const tenantId = `tenant-${user.uid}`;
+      const tenantName = form.company || `${form.name}'s Workspace`;
+
       const profile = {
         uid: user.uid,
         email: form.email,
         displayName: form.name,
         role: form.role,
+        tenantId,
+        tenantName,
         company: form.company,
         createdAt: new Date().toISOString(),
       };
 
       try {
         await setDoc(doc(db, 'users', user.uid), profile);
+      } catch {
+        // Firestore may be unavailable
+      }
+
+      // Create tenant + membership so backend can enforce multi-tenant RBAC.
+      try {
+        await setDoc(doc(db, 'tenants', tenantId), {
+          id: tenantId,
+          name: tenantName,
+          plan: 'starter',
+          createdAt: new Date().toISOString(),
+        });
+        await setDoc(doc(db, 'tenants', tenantId, 'members', user.uid), {
+          userId: user.uid,
+          tenantId,
+          role: form.role,
+          createdAt: new Date().toISOString(),
+        });
       } catch {
         // Firestore may be unavailable
       }
@@ -72,16 +100,38 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const { user } = await signInWithPopup(auth, googleProvider);
+      const tenantId = `tenant-${user.uid}`;
+      const tenantName = user.displayName ? `${user.displayName}'s Workspace` : 'Personal Workspace';
+
       try {
         await setDoc(doc(db, 'users', user.uid), {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName,
           photoURL: user.photoURL,
-          role: 'client',
+          role: 'owner',
+          tenantId,
+          tenantName,
           createdAt: new Date().toISOString(),
         }, { merge: true });
       } catch { /* ignore */ }
+
+      // Create tenant + membership so backend can enforce multi-tenant RBAC.
+      try {
+        await setDoc(doc(db, 'tenants', tenantId), {
+          id: tenantId,
+          name: tenantName,
+          plan: 'starter',
+          createdAt: new Date().toISOString(),
+        });
+        await setDoc(doc(db, 'tenants', tenantId, 'members', user.uid), {
+          userId: user.uid,
+          tenantId,
+          role: 'owner',
+          createdAt: new Date().toISOString(),
+        });
+      } catch { /* ignore */ }
+
       navigate('/dashboard');
     } catch (err) {
       dispatch(setError(err instanceof Error ? err.message : 'Google signup failed'));

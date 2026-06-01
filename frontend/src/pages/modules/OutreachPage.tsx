@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Mail, MessageCircle, Send } from 'lucide-react';
 import ModuleLayout from '@/components/ui/ModuleLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -6,7 +6,8 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Textarea from '@/components/ui/Textarea';
 import Select from '@/components/ui/Select';
-import { generateOutreach } from '@/lib/api';
+import { createOutreachRecord, generateOutreach, getOutreachRecords } from '@/lib/api';
+import { useToast } from '@/components/ui/ToastProvider';
 
 export default function OutreachPage() {
   const [type, setType] = useState('email');
@@ -14,6 +15,41 @@ export default function OutreachPage() {
   const [context, setContext] = useState('');
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: string; type: string; target: string; createdAt: string }>>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    getOutreachRecords({ limit: 5 })
+      .then((data) => {
+        const payload = data as {
+          items?: Array<{ id: string; type: string; target: string; createdAt: string }>;
+          nextCursor?: string | null;
+        };
+        setHistory(payload.items || []);
+        setHistoryCursor(payload.nextCursor || null);
+      })
+      .catch(() => showToast('Unable to load outreach history.', 'error'));
+  }, [showToast]);
+
+  const handleLoadMoreHistory = async () => {
+    if (!historyCursor || loadingMoreHistory) return;
+    setLoadingMoreHistory(true);
+    try {
+      const data = await getOutreachRecords({ limit: 5, before: historyCursor });
+      const payload = data as {
+        items?: Array<{ id: string; type: string; target: string; createdAt: string }>;
+        nextCursor?: string | null;
+      };
+      setHistory((prev) => [...prev, ...(payload.items || [])]);
+      setHistoryCursor(payload.nextCursor || null);
+    } catch {
+      showToast('Unable to load more drafts.', 'error');
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  };
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -33,14 +69,33 @@ export default function OutreachPage() {
         sponsorship: 'Sponsorship Proposal:\n\nBrand: [Your Brand]\nDeliverables: 3 Instagram posts + 2 Stories\nCompensation: $X + Free products\nTimeline: 2 weeks\nExclusivity: Category exclusivity for 30 days',
         tracking: { opens: 0, clicks: 0, replies: 0, status: 'draft' },
       });
+      showToast('Using fallback generation (API unavailable).', 'info');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleSaveDraft = async () => {
+    if (!result) return;
+    try {
+      const saved = await createOutreachRecord({
+        type,
+        target,
+        initial: result.initial,
+        followUps: result.followUps,
+        tracking: result.tracking,
+      });
+      const record = saved as { id: string; type: string; target: string; createdAt: string };
+      setHistory((prev) => [record, ...prev]);
+      showToast('Outreach draft saved.', 'success');
+    } catch {
+      showToast('Unable to save draft right now.', 'error');
+    }
+  };
+
   return (
     <ModuleLayout title="AI Outreach Automation" description="Generate personalized cold emails, WhatsApp messages, and follow-up sequences"
-      actions={<Button onClick={handleGenerate} loading={loading}><Send size={18} /> Generate Outreach</Button>}>
+      actions={<div className="flex gap-2"><Button onClick={handleGenerate} loading={loading}><Send size={18} /> Generate Outreach</Button><Button variant="secondary" onClick={handleSaveDraft} disabled={!result}>Save Draft</Button></div>}>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <GlassCard hover={false}>
           <div className="space-y-4">
@@ -94,6 +149,23 @@ export default function OutreachPage() {
               <p style={{ color: 'var(--text-muted)' }}>Configure outreach settings and generate personalized messages</p>
             </GlassCard>
           )}
+          <GlassCard hover={false}>
+            <h4 className="font-semibold mb-3">Saved Outreach Drafts</h4>
+            <div className="space-y-2">
+              {history.map((item) => (
+                <div key={item.id} className="p-3 rounded-xl text-sm flex items-center justify-between" style={{ background: 'var(--bg-secondary)' }}>
+                  <span>{item.type} • {item.target || 'Untitled target'}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>{new Date(item.createdAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+              {!history.length && <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No saved drafts yet.</p>}
+              {historyCursor && (
+                <Button variant="secondary" size="sm" onClick={handleLoadMoreHistory} loading={loadingMoreHistory}>
+                  Load more
+                </Button>
+              )}
+            </div>
+          </GlassCard>
         </div>
       </div>
     </ModuleLayout>

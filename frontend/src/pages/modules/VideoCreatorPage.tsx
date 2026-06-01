@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Video, Play, CheckCircle2, Loader2, Film, Mic, Clapperboard, Sparkles,
+  Video, Play, CheckCircle2, Loader2, Film, Mic, Clapperboard,
   Download, FileText, ChevronDown, Volume2, VolumeX, RefreshCw,
+  Building2, Lightbulb, Hash, Share2, Music, Target, Copy,
 } from 'lucide-react';
 import ModuleLayout from '@/components/ui/ModuleLayout';
 import GlassCard from '@/components/ui/GlassCard';
@@ -9,11 +10,12 @@ import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { createVideo } from '@/lib/api';
-import { buildVideoContent, getVideoTopic } from '@/lib/videoContent';
+import { buildVideoContent, formatFullMarketingReport, type VideoMarketingPackage } from '@/lib/videoContent';
+import { getSoftwareDemoVideos, getSoftwareProduct, type SoftwareDemoVideo } from '@/lib/softwareDemoEngine';
+import { renderSoftwareDemoVideo } from '@/lib/softwareDemoRender';
 import {
   downloadVideoFile,
   getVideoFormatLabel,
-  renderStoryboardVideo,
   speakVoiceover,
   stopVoiceover,
 } from '@/lib/videoExport';
@@ -32,10 +34,7 @@ interface PlatformOutput {
   format: string;
 }
 
-interface VideoResult {
-  script: string;
-  storyboard: StoryboardScene[];
-  voiceover: string;
+interface VideoResult extends VideoMarketingPackage {
   outputs: Record<string, PlatformOutput>;
   captions?: { enabled: boolean; languages: string[] };
 }
@@ -47,11 +46,11 @@ interface CachedVideo {
 }
 
 const CREATION_STEPS = [
-  { label: 'Analyzing your source', icon: Sparkles },
-  { label: 'Writing marketing script', icon: Film },
-  { label: 'Building storyboard', icon: Clapperboard },
-  { label: 'Generating voiceover', icon: Mic },
-  { label: 'Rendering platform videos', icon: Video },
+  { label: 'Analyzing software product', icon: Building2 },
+  { label: 'Building module demo scripts', icon: Film },
+  { label: 'Creating UI walkthrough scenes', icon: Clapperboard },
+  { label: 'Preparing multiple demo videos', icon: Video },
+  { label: 'Rendering software demo player', icon: Play },
 ];
 
 const DEFAULT_OUTPUTS: Record<string, PlatformOutput> = {
@@ -61,7 +60,13 @@ const DEFAULT_OUTPUTS: Record<string, PlatformOutput> = {
   linkedin: { status: 'ready', duration: '45s', format: '16:9' },
 };
 
-function normalizeVideoResult(data: unknown): VideoResult {
+function normalizeVideoResult(data: unknown): {
+  script: string;
+  storyboard: StoryboardScene[];
+  voiceover: string;
+  outputs: Record<string, PlatformOutput>;
+  captions?: { enabled: boolean; languages: string[] };
+} {
   const raw = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
   const script = String(raw.script || raw.raw || 'Video script will appear here.');
   const voiceover = String(raw.voiceover || '');
@@ -78,6 +83,8 @@ function normalizeVideoResult(data: unknown): VideoResult {
           scene: Number(scene.scene) || index + 1,
           description: String(scene.description || scene.text || `Scene ${index + 1}`),
           duration: String(scene.duration || '5s'),
+          headline: scene.headline ? String(scene.headline) : undefined,
+          bullets: Array.isArray(scene.bullets) ? scene.bullets.map(String) : undefined,
         };
       }
       return { scene: index + 1, description: `Scene ${index + 1}`, duration: '5s' };
@@ -106,29 +113,25 @@ function normalizeVideoResult(data: unknown): VideoResult {
 }
 
 function enrichVideoResult(
-  data: unknown,
+  _data: unknown,
   source: string,
   sourceType: string,
   language: string,
   voice: string
 ): VideoResult {
-  const normalized = normalizeVideoResult(data);
+  const normalized = normalizeVideoResult(_data);
   const built = buildVideoContent(source, sourceType, language, voice);
   return {
-    ...normalized,
-    script: built.script,
-    storyboard: built.storyboard,
+    ...built,
     voiceover: built.voiceover.replace(/\s*\[.*\]$/, ''),
+    outputs: normalized.outputs,
+    captions: normalized.captions,
   };
 }
 
-const OFFLINE_DEMO: VideoResult = enrichVideoResult(
-  null,
-  'AI Business Growth OS — Marketing Software',
-  'description',
-  'english',
-  'female'
-);
+function copyText(text: string) {
+  navigator.clipboard.writeText(text).catch(() => undefined);
+}
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -146,21 +149,22 @@ function downloadText(filename: string, content: string) {
 
 function RealVideoPlayer({
   videoUrl,
-  format,
-  platform,
+  demoTitle,
+  demoSubtitle,
   loading,
   progress,
+  stage,
   onRegenerate,
 }: {
   videoUrl: string | null;
-  format: string;
-  platform: string;
+  demoTitle: string;
+  demoSubtitle: string;
   loading: boolean;
   progress: number;
+  stage?: string;
   onRegenerate: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const isVertical = format.includes('9:16');
 
   useEffect(() => {
     if (videoUrl && videoRef.current) {
@@ -173,11 +177,14 @@ function RealVideoPlayer({
     return (
       <div className="flex flex-col items-center py-12 gap-4">
         <Loader2 size={48} className="animate-spin" style={{ color: 'var(--primary-color)' }} />
-        <p className="font-semibold">Real video render ho rahi hai... {progress}%</p>
+        <p className="font-semibold">Software demo render ho rahi hai... {progress}%</p>
+        {stage && (
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{stage}</p>
+        )}
         <div className="w-full max-w-md h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-secondary)' }}>
           <div className="h-full transition-all duration-300 rounded-full" style={{ width: `${progress}%`, background: 'var(--primary-color)' }} />
         </div>
-        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>15-30 seconds lag sakte hain — page band mat karein</p>
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>UI walkthrough + sidebar navigation — har module alag demo</p>
       </div>
     );
   }
@@ -196,22 +203,22 @@ function RealVideoPlayer({
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className={`relative rounded-2xl overflow-hidden border-2 w-full ${isVertical ? 'max-w-[280px] mx-auto' : 'max-w-2xl mx-auto'}`}
+      <div className={`relative rounded-2xl overflow-hidden border-2 w-full max-w-2xl mx-auto`}
         style={{ borderColor: 'var(--primary-color)', background: '#000' }}>
-        <span className="absolute top-3 left-3 z-10 badge badge-primary capitalize">{platform}</span>
-        <span className="absolute top-3 right-3 z-10 badge badge-success">▶ LIVE</span>
+        <span className="absolute top-3 left-3 z-10 badge badge-primary">{demoTitle}</span>
+        <span className="absolute top-3 right-3 z-10 badge badge-success">● SOFTWARE DEMO</span>
         <video
           ref={videoRef}
           src={videoUrl}
           controls
           playsInline
           loop
-          className={`w-full ${isVertical ? 'aspect-[9/16]' : 'aspect-video'}`}
+          className="w-full aspect-video"
           style={{ display: 'block' }}
         />
       </div>
-      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        ✅ Yeh asli video file hai — Play dabao ya Download karo
+      <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>
+        ✅ {demoSubtitle} — Live UI walkthrough with sidebar & stats
       </p>
     </div>
   );
@@ -227,43 +234,44 @@ export default function VideoCreatorPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isReady, setIsReady] = useState(false);
-  const [platformsReady, setPlatformsReady] = useState<Record<string, boolean>>({});
-  const [previewPlatform, setPreviewPlatform] = useState('youtube');
-  const [videoCache, setVideoCache] = useState<Record<string, CachedVideo>>({});
+  const [softwareDemos, setSoftwareDemos] = useState<SoftwareDemoVideo[]>([]);
+  const [activeDemoId, setActiveDemoId] = useState('full-tour');
+  const [demoVideoCache, setDemoVideoCache] = useState<Record<string, CachedVideo>>({});
   const [renderingVideo, setRenderingVideo] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
+  const [renderStage, setRenderStage] = useState('');
   const [videoFormat, setVideoFormat] = useState('WebM');
   const [speaking, setSpeaking] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
   const renderLock = useRef(false);
 
-  const generateVideoForPlatform = useCallback(async (platform: string, videoResult: VideoResult, fastMode = true): Promise<CachedVideo | null> => {
-    if (renderLock.current) return null;
+  const generateDemoVideo = useCallback(async (demoId: string, fastMode = true): Promise<CachedVideo | null> => {
+    const demo = softwareDemos.find((d) => d.id === demoId);
+    if (!demo || renderLock.current) return null;
     renderLock.current = true;
     setRenderingVideo(true);
     setRenderProgress(0);
+    setRenderStage('Building software UI demo...');
 
     try {
-      const format = videoResult.outputs[platform]?.format || '16:9';
-      const topic = getVideoTopic(source, sourceType);
-      const { blob, extension, mimeType } = await renderStoryboardVideo({
-        scenes: videoResult.storyboard,
-        platform,
-        format,
-        productName: topic.productName,
-        tagline: topic.tagline,
-        source: topic.website,
-        hookLine: topic.hook,
+      const product = getSoftwareProduct(source, sourceType);
+      const { blob, extension, mimeType } = await renderSoftwareDemoVideo({
+        scenes: demo.scenes,
+        productName: product.name,
+        website: product.website,
+        modules: product.modules,
+        format: '16:9',
         fastMode,
         onProgress: setRenderProgress,
+        onStage: setRenderStage,
       });
 
       const url = URL.createObjectURL(blob);
       const cached: CachedVideo = { url, extension, mimeType };
       setVideoFormat(getVideoFormatLabel(mimeType));
-      setVideoCache((prev) => {
-        if (prev[platform]?.url) URL.revokeObjectURL(prev[platform].url);
-        return { ...prev, [platform]: cached };
+      setDemoVideoCache((prev) => {
+        if (prev[demoId]?.url) URL.revokeObjectURL(prev[demoId].url);
+        return { ...prev, [demoId]: cached };
       });
       return cached;
     } catch (err) {
@@ -273,37 +281,26 @@ export default function VideoCreatorPage() {
       setRenderingVideo(false);
       renderLock.current = false;
     }
-  }, [source, sourceType]);
+  }, [source, sourceType, softwareDemos]);
 
   useEffect(() => {
-    if (!result || loading) return;
-
-    const platforms = Object.keys(result.outputs);
-    setPlatformsReady(Object.fromEntries(platforms.map((p) => [p, false])));
-    setPreviewPlatform(platforms[0] || 'youtube');
-    setVideoCache({});
-
-    platforms.forEach((platform, index) => {
-      setTimeout(() => setPlatformsReady((prev) => ({ ...prev, [platform]: true })), 400 + index * 350);
-    });
-
+    if (!result || loading || !softwareDemos.length) return;
+    setActiveDemoId('full-tour');
+    setDemoVideoCache({});
     setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 600);
-
-    setTimeout(() => {
-      if (platforms[0]) generateVideoForPlatform(platforms[0], result, true);
-    }, 1200);
-  }, [result, loading, generateVideoForPlatform]);
+    setTimeout(() => generateDemoVideo('full-tour', true), 1200);
+  }, [result, loading, softwareDemos, generateDemoVideo]);
 
   useEffect(() => {
-    if (!result || !platformsReady[previewPlatform] || videoCache[previewPlatform]) return;
-    generateVideoForPlatform(previewPlatform, result, true);
-  }, [previewPlatform, result, platformsReady, videoCache, generateVideoForPlatform]);
+    if (!softwareDemos.length || demoVideoCache[activeDemoId] || renderingVideo) return;
+    generateDemoVideo(activeDemoId, true);
+  }, [activeDemoId, softwareDemos, demoVideoCache, renderingVideo, generateDemoVideo]);
 
-  const videoCacheRef = useRef<Record<string, CachedVideo>>({});
-  videoCacheRef.current = videoCache;
+  const demoCacheRef = useRef<Record<string, CachedVideo>>({});
+  demoCacheRef.current = demoVideoCache;
 
   useEffect(() => () => {
-    Object.values(videoCacheRef.current).forEach((v) => URL.revokeObjectURL(v.url));
+    Object.values(demoCacheRef.current).forEach((v) => URL.revokeObjectURL(v.url));
     stopVoiceover();
   }, []);
 
@@ -320,10 +317,10 @@ export default function VideoCreatorPage() {
     setLoading(true);
     setIsReady(false);
     setResult(null);
-    setVideoCache({});
+    setDemoVideoCache({});
+    setSoftwareDemos([]);
     setCurrentStep(0);
     setProgress(5);
-    setPlatformsReady({});
 
     const progressTask = runProgressAnimation();
     try {
@@ -331,11 +328,13 @@ export default function VideoCreatorPage() {
       await progressTask;
       setProgress(100);
       setResult(enrichVideoResult(data, source, sourceType, language, voice));
+      setSoftwareDemos(getSoftwareDemoVideos(source, sourceType));
       setIsReady(true);
     } catch {
       await progressTask;
       setProgress(100);
       setResult(enrichVideoResult(null, source, sourceType, language, voice));
+      setSoftwareDemos(getSoftwareDemoVideos(source, sourceType));
       setIsReady(true);
     } finally {
       setLoading(false);
@@ -345,17 +344,18 @@ export default function VideoCreatorPage() {
   const handleDownloadVideo = async () => {
     if (!result || renderingVideo) return;
 
-    let cached: CachedVideo | null | undefined = videoCache[previewPlatform];
+    let cached: CachedVideo | null | undefined = demoVideoCache[activeDemoId];
     if (!cached) {
-      cached = await generateVideoForPlatform(previewPlatform, result, false);
+      cached = await generateDemoVideo(activeDemoId, false);
     }
     if (!cached) {
-      alert('Video render failed. Chrome browser use karein.');
+      alert('Demo render failed. Chrome browser use karein.');
       return;
     }
 
+    const demo = softwareDemos.find((d) => d.id === activeDemoId);
     const blob = await fetch(cached.url).then((r) => r.blob());
-    downloadVideoFile(blob, `ai-video-${previewPlatform}-${Date.now()}.${cached.extension}`);
+    downloadVideoFile(blob, `software-demo-${demo?.moduleId || activeDemoId}-${Date.now()}.${cached.extension}`);
   };
 
   const handlePlayVoice = () => {
@@ -370,15 +370,16 @@ export default function VideoCreatorPage() {
     }
   };
 
-  const currentVideo = videoCache[previewPlatform];
+  const activeDemo = softwareDemos.find((d) => d.id === activeDemoId);
+  const currentVideo = demoVideoCache[activeDemoId];
 
   return (
     <ModuleLayout
-      title="AI Video Creator"
-      description="Generate marketing videos from URLs, repos, or descriptions"
+      title="AI Video Marketing Creator"
+      description="Software product demo videos — har module ka alag walkthrough"
       actions={
         <Button onClick={handleCreate} loading={loading} disabled={!source || loading}>
-          <Video size={18} /> {loading ? 'Creating Video...' : 'Create Video'}
+          <Video size={18} /> {loading ? 'Creating Demos...' : 'Create Software Demos'}
         </Button>
       }
     >
@@ -387,9 +388,9 @@ export default function VideoCreatorPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <CheckCircle2 size={28} className="text-green-400 shrink-0" />
             <div>
-              <p className="font-semibold text-green-400">Video Ready — Neeche player mein dekhein!</p>
+              <p className="font-semibold text-green-400">{softwareDemos.length} Software Demo Videos Ready!</p>
               <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                Real video auto-generate ho rahi hai. Play button dabao ya Download karo.
+                Har module ka alag UI walkthrough demo — neeche se switch karein aur download karein.
               </p>
             </div>
             <ChevronDown size={24} className="animate-bounce hidden sm:block" style={{ color: 'var(--primary-color)' }} />
@@ -401,13 +402,19 @@ export default function VideoCreatorPage() {
         <GlassCard hover={false}>
           <h3 className="font-semibold mb-4">Video Settings</h3>
           <div className="space-y-4">
-            <Select label="Source Type" options={[
-              { value: 'url', label: 'Website URL' },
+            <Select label="Input Type" options={[
+              { value: 'url', label: 'Company Website URL' },
+              { value: 'linkedin', label: 'LinkedIn Profile / Company' },
+              { value: 'description', label: 'Business Description' },
               { value: 'github', label: 'GitHub Repo' },
-              { value: 'description', label: 'Product Description' },
             ]} value={sourceType} onChange={(e) => setSourceType(e.target.value)} />
-            <Input label="Source" value={source} onChange={(e) => setSource(e.target.value)}
-              placeholder={sourceType === 'url' ? 'https://...' : sourceType === 'github' ? 'github.com/user/repo' : 'Describe your product...'} />
+            <Input label="Business Input" value={source} onChange={(e) => setSource(e.target.value)}
+              placeholder={
+                sourceType === 'linkedin' ? 'linkedin.com/company/your-brand'
+                : sourceType === 'url' ? 'https://yourcompany.com'
+                : sourceType === 'github' ? 'github.com/user/repo'
+                : 'Describe your business, services & target market...'
+              } />
             <Select label="Language" options={[
               { value: 'english', label: 'English' },
               { value: 'urdu', label: 'Urdu' },
@@ -462,13 +469,16 @@ export default function VideoCreatorPage() {
                 style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.15))', border: '2px solid var(--primary-color)' }}>
                 <div>
                   <h3 className="text-lg font-bold flex items-center gap-2">
-                    <Film size={22} style={{ color: 'var(--primary-color)' }} /> Video Results
+                    <Film size={22} style={{ color: 'var(--primary-color)' }} /> Software Demo Videos
                   </h3>
                   <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Player mein video dekhein • Download • Voice sunen
+                    {softwareDemos.length} demos — Full tour + har module alag • Download karein
                   </p>
                 </div>
                 <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="secondary" onClick={() => downloadText('video-marketing-report.txt', formatFullMarketingReport(result))}>
+                    <FileText size={16} /> Full Report
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={() => downloadText('script.txt', result.script)}>
                     <FileText size={16} /> Script
                   </Button>
@@ -487,11 +497,11 @@ export default function VideoCreatorPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                   <h4 className="font-semibold flex items-center gap-2">
                     <Play size={18} style={{ color: 'var(--primary-color)' }} />
-                    Video Player
-                    <span className="badge badge-success text-xs">Real Video</span>
+                    Demo Player
+                    <span className="badge badge-success text-xs">Software Demo</span>
                   </h4>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => result && generateVideoForPlatform(previewPlatform, result, true)} disabled={renderingVideo}>
+                    <Button size="sm" variant="secondary" onClick={() => generateDemoVideo(activeDemoId, true)} disabled={renderingVideo}>
                       <RefreshCw size={14} /> Re-render
                     </Button>
                     <Button size="sm" variant="neon" onClick={handleDownloadVideo} disabled={renderingVideo || !currentVideo}>
@@ -501,17 +511,91 @@ export default function VideoCreatorPage() {
                 </div>
                 <RealVideoPlayer
                   videoUrl={currentVideo?.url ?? null}
-                  format={result.outputs[previewPlatform]?.format || '16:9'}
-                  platform={previewPlatform}
+                  demoTitle={activeDemo?.title || 'Software Demo'}
+                  demoSubtitle={activeDemo?.subtitle || 'Module walkthrough'}
                   loading={renderingVideo}
                   progress={renderProgress}
-                  onRegenerate={() => result && generateVideoForPlatform(previewPlatform, result, true)}
+                  stage={renderStage}
+                  onRegenerate={() => generateDemoVideo(activeDemoId, true)}
                 />
               </GlassCard>
 
+              <div>
+                <h4 className="font-semibold mb-3">
+                  <Video size={18} className="inline mr-2" />
+                  All Demo Videos ({softwareDemos.length}) — Click to preview
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {softwareDemos.map((demo) => {
+                    const selected = activeDemoId === demo.id;
+                    const hasVideo = !!demoVideoCache[demo.id];
+                    const isRendering = renderingVideo && selected;
+                    return (
+                      <button key={demo.id} type="button" onClick={() => setActiveDemoId(demo.id)} className="text-left">
+                        <GlassCard className={`text-center !p-3 w-full ${selected ? 'ring-2 ring-[var(--primary-color)]' : ''}`} hover={false}>
+                          <span className="text-2xl block mb-1">{demo.icon}</span>
+                          {isRendering ? (
+                            <Loader2 size={20} className="mx-auto mb-1 animate-spin" style={{ color: 'var(--primary-color)' }} />
+                          ) : hasVideo ? (
+                            <CheckCircle2 size={20} className="mx-auto mb-1 text-green-400" />
+                          ) : (
+                            <Play size={20} className="mx-auto mb-1 opacity-40" />
+                          )}
+                          <p className="font-medium text-xs leading-tight">{demo.title}</p>
+                          <p className="text-xs mt-1 opacity-60">{demo.duration}</p>
+                          <span className={`badge mt-1 text-xs ${hasVideo ? 'badge-success' : selected ? 'badge-primary' : ''}`}>
+                            {isRendering ? `${renderProgress}%` : hasVideo ? 'Ready' : demo.isFullTour ? 'Full Tour' : 'Module'}
+                          </span>
+                        </GlassCard>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <GlassCard hover={false}>
-                <h4 className="font-semibold mb-3"><CheckCircle2 size={18} className="inline text-green-400 mr-2" />Script</h4>
-                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.script}</p>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Building2 size={18} style={{ color: 'var(--primary-color)' }} /> Business Summary
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div className="p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Company Name</p>
+                    <p className="font-semibold">{result.businessSummary.companyName}</p>
+                  </div>
+                  <div className="p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Industry</p>
+                    <p className="font-semibold">{result.businessSummary.industry}</p>
+                  </div>
+                  <div className="p-3 rounded-xl sm:col-span-2" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Main Services</p>
+                    <p style={{ color: 'var(--text-secondary)' }}>{result.businessSummary.mainServices.join(' • ')}</p>
+                  </div>
+                  <div className="p-3 rounded-xl sm:col-span-2" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>Target Audience</p>
+                    <p style={{ color: 'var(--text-secondary)' }}>{result.businessSummary.targetAudience}</p>
+                  </div>
+                </div>
+              </GlassCard>
+
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Lightbulb size={18} className="text-yellow-400" /> Video Concept & Hook
+                </h4>
+                <div className="space-y-3 text-sm">
+                  <div className="p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1 font-medium" style={{ color: 'var(--primary-color)' }}>Marketing Angle</p>
+                    <p style={{ color: 'var(--text-secondary)' }}>{result.videoConcept}</p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-yellow-500/30" style={{ background: 'rgba(251,191,36,0.08)' }}>
+                    <p className="text-xs mb-1 font-medium text-yellow-400">Hook (First 5 Seconds)</p>
+                    <p className="font-semibold">{result.hook}</p>
+                  </div>
+                </div>
+              </GlassCard>
+
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3"><CheckCircle2 size={18} className="inline text-green-400 mr-2" />60-Second Video Script</h4>
+                <pre className="text-sm whitespace-pre-wrap font-sans" style={{ color: 'var(--text-secondary)' }}>{result.script}</pre>
               </GlassCard>
 
               {result.voiceover && (
@@ -527,46 +611,89 @@ export default function VideoCreatorPage() {
               )}
 
               <GlassCard hover={false}>
-                <h4 className="font-semibold mb-3"><Clapperboard size={18} className="inline mr-2" />Storyboard ({result.storyboard.length} scenes)</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {result.storyboard.map((scene) => (
-                    <div key={scene.scene} className="p-4 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
-                      <span className="badge badge-primary mr-2">Scene {scene.scene}</span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.duration}</span>
-                      <p className="text-sm mt-2">{scene.description}</p>
+                <h4 className="font-semibold mb-3"><Clapperboard size={18} className="inline mr-2" />Scene Breakdown ({result.scenes.length} scenes • 60s)</h4>
+                <div className="space-y-4">
+                  {result.scenes.map((scene) => (
+                    <div key={scene.scene} className="p-4 rounded-xl border" style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="badge badge-primary">Scene {scene.scene}</span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.duration}</span>
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 text-sm">
+                        <div><span className="font-medium text-purple-400">Visual: </span><span style={{ color: 'var(--text-secondary)' }}>{scene.visual}</span></div>
+                        <div><span className="font-medium text-blue-400">Voice-over: </span><span style={{ color: 'var(--text-secondary)' }}>{scene.voiceover}</span></div>
+                        <div><span className="font-medium text-yellow-400">On-screen Text: </span><span style={{ color: 'var(--text-secondary)' }}>{scene.onScreenText}</span></div>
+                        <div><span className="font-medium text-green-400">Caption: </span><span style={{ color: 'var(--text-secondary)' }}>{scene.caption}</span></div>
+                        <div className="p-2 rounded-lg mt-1" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                          <span className="font-medium text-indigo-400">AI Image Prompt: </span>
+                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.imagePrompt}</span>
+                        </div>
+                        <div className="p-2 rounded-lg" style={{ background: 'rgba(168,85,247,0.1)' }}>
+                          <span className="font-medium text-violet-400">AI Video Prompt: </span>
+                          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{scene.videoPrompt}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
               </GlassCard>
 
-              <div>
-                <h4 className="font-semibold mb-3"><Video size={18} className="inline mr-2" />Platform Videos — Click to switch</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {Object.entries(result.outputs).map(([platform, info]) => {
-                    const ready = platformsReady[platform];
-                    const selected = previewPlatform === platform;
-                    const hasVideo = !!videoCache[platform];
-                    return (
-                      <button key={platform} type="button" onClick={() => ready && setPreviewPlatform(platform)} className="text-left">
-                        <GlassCard className={`text-center !p-4 w-full ${selected ? 'ring-2 ring-[var(--primary-color)]' : ''}`} hover={false}>
-                          {hasVideo ? <CheckCircle2 size={24} className="mx-auto mb-2 text-green-400" /> : ready ? <Play size={24} className="mx-auto mb-2" style={{ color: 'var(--primary-color)' }} /> : <Loader2 size={24} className="mx-auto mb-2 animate-spin" />}
-                          <p className="font-medium capitalize text-sm">{platform}</p>
-                          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{info.duration} • {info.format}</p>
-                          <span className={`badge mt-2 ${hasVideo ? 'badge-success' : ready ? 'badge-primary' : ''}`}>
-                            {hasVideo ? 'Video Ready' : ready ? 'Select' : 'Loading...'}
-                          </span>
-                        </GlassCard>
-                      </button>
-                    );
-                  })}
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Music size={18} style={{ color: 'var(--primary-color)' }} /> Background Music & CTA
+                </h4>
+                <div className="space-y-3 text-sm">
+                  <div className="p-3 rounded-xl" style={{ background: 'var(--bg-secondary)' }}>
+                    <p className="text-xs mb-1 font-medium" style={{ color: 'var(--text-muted)' }}>Recommended Music Style</p>
+                    <p style={{ color: 'var(--text-secondary)' }}>{result.backgroundMusic}</p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-green-500/30" style={{ background: 'rgba(34,197,94,0.08)' }}>
+                    <p className="text-xs mb-1 font-medium text-green-400 flex items-center gap-1"><Target size={14} /> Call To Action</p>
+                    <p className="font-semibold">{result.cta}</p>
+                  </div>
                 </div>
-              </div>
+              </GlassCard>
+
+              <GlassCard hover={false}>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Share2 size={18} style={{ color: 'var(--primary-color)' }} /> Social Media Versions
+                </h4>
+                <div className="space-y-3">
+                  {(['linkedin', 'facebook', 'instagram', 'youtube'] as const).map((platform) => (
+                    <div key={platform} className="p-3 rounded-xl relative" style={{ background: 'var(--bg-secondary)' }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="badge badge-primary capitalize">{platform}</span>
+                        <button type="button" onClick={() => copyText(result.socialMedia[platform])} className="text-xs flex items-center gap-1 opacity-60 hover:opacity-100">
+                          <Copy size={12} /> Copy
+                        </button>
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--text-secondary)' }}>{result.socialMedia[platform]}</p>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+
+              <GlassCard hover={false}>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <Hash size={18} style={{ color: 'var(--primary-color)' }} /> Hashtags ({result.hashtags.length})
+                  </h4>
+                  <Button size="sm" variant="secondary" onClick={() => copyText(result.hashtags.join(' '))}>
+                    <Copy size={14} /> Copy All
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {result.hashtags.map((tag) => (
+                    <span key={tag} className="badge badge-primary text-xs cursor-pointer" onClick={() => copyText(tag)}>{tag}</span>
+                  ))}
+                </div>
+              </GlassCard>
             </div>
           ) : (
             <GlassCard hover={false} className="text-center py-20">
               <Video size={48} className="mx-auto mb-4 opacity-30" />
-              <p className="font-medium mb-2">Apni marketing video banayein</p>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Source likho aur Create Video dabao</p>
+              <p className="font-medium mb-2">Software demo videos banayein</p>
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>GitHub repo ya business URL dalo — har module ka demo auto-generate hoga</p>
             </GlassCard>
           )}
         </div>
